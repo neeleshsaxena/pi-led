@@ -1,0 +1,14 @@
+[Unit]
+Description=pi-led controller web app (admin + preview)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=pi
+WorkingDirectory=/home/pi/pi-led
+ExecStart=/home/pi/pi-led/.venv/bin/uvicorn controller.web:app --host 0.0.0.0 --port 5070
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

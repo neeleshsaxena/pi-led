@@ -1,0 +1,8 @@
+.venv/
+__pycache__/
+*.pyc
+.state.json
+.admin_password
+*.tmp
+.DS_Store
+*.egg-info/

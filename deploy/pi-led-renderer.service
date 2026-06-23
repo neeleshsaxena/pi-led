@@ -1,0 +1,20 @@
+[Unit]
+Description=pi-led panel renderer (single panel owner)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=pi
+WorkingDirectory=/home/pi/pi-led
+ExecStart=/home/pi/pi-led/.venv/bin/python -m controller.runner
+Restart=on-failure
+RestartSec=2
+
+# NOTE: once the HUB75 panel + Adafruit Bonnet are installed, the hzeller
+# rgbmatrix backend needs GPIO/hardware access. At that point either run this
+# unit as root (User=root) or grant the required privileges, and pin
+# LED_GPIO_SLOWDOWN / LED_BRIGHTNESS via Environment= lines. Until then this
+# runs as pi with the PNG sink.
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>pi-led preview</title>
+  <style>
+    body { margin: 0; background: #111; color: #ccc; font-family: system-ui, sans-serif;
+           display: flex; flex-direction: column; align-items: center; gap: 1rem; padding: 2rem; }
+    img { image-rendering: pixelated; border: 4px solid #333; border-radius: 6px; }
+    a { color: #6cf; }
+  </style>
+</head>
+<body>
+  <h1>LED panel — live preview</h1>
+  <img id="frame" src="/led-preview.png" width="{{ 64 * scale }}" height="{{ 64 * scale }}" alt="LED preview" />
+  <p><a href="/admin">admin →</a></p>
+  <script>
+    const img = document.getElementById('frame');
+    setInterval(() => { img.src = '/led-preview.png?t=' + Date.now(); }, 200);
+  </script>
+</body>
+</html>

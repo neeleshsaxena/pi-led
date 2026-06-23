@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pi-led"
+version = "0.1.0"
+description = "Plugin-based controller that drives the Raspberry Pi 64x64 LED panel"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "jinja2",
+    "python-multipart",
+    "pillow",
+    "httpx",
+]
+
+# rpi-rgb-led-matrix (the 'rgbmatrix' module) is installed separately on the Pi
+# from hzeller's source; the sink auto-detects it. Not a pip dependency.
+
+[tool.setuptools]
+packages = ["pi_led_core", "apps", "apps.messages", "apps.worldcup", "controller"]
