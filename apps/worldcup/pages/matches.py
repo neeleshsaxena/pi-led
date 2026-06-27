@@ -18,9 +18,11 @@ from pi_led_core.canvas import (
     draw_big,
     draw_big_centered,
     draw_centered,
+    draw_micro_centered,
     draw_text,
     filled_rect,
     font_small,
+    micro_text_width,
     new_canvas,
     pulse_color,
     rainbow,
@@ -196,11 +198,25 @@ def render(
             draw_big(draw, (4 + ft_w + 8, 38), tail[:6], fill=GRAY, scale=1)
         _draw_scorer(draw, match)
     else:
+        _draw_location(draw, match)
         text, color = _kickoff_countdown(match, tz)
         draw_big_centered(draw, 45, text, fill=color, scale=1)
 
     _draw_pager(draw, page_idx, page_count)
     return img
+
+
+def _draw_location(draw, match, y: int = 37) -> None:
+    """Stopgap (lead-added): show the city centered in the 3x5 micro font for
+    scheduled matches, where there's free space. Full styling — scrolling
+    stadium name, showing it on live/final cards — is the UI/UX agent's call;
+    see deploy/UI-ASKS.md. Data: match.venue / match.city / match.country."""
+    city = _ascii_upper((match.city or "").split(",")[0].strip())
+    if not city:
+        return
+    while city and micro_text_width(city) > WIDTH - 6:
+        city = city[:-1]
+    draw_micro_centered(draw, y, city, fill=GRAY)
 
 
 def lerp_white(c, t: float = 0.45):

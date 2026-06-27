@@ -64,6 +64,9 @@ class Match:
     short_detail: str
     home: Team
     away: Team
+    venue: str = ""      # stadium full name, e.g. "Lincoln Financial Field"
+    city: str = ""       # e.g. "Philadelphia, Pennsylvania"
+    country: str = ""    # e.g. "USA"
 
     @property
     def is_live(self) -> bool:
@@ -125,6 +128,12 @@ def _parse_event(event: dict) -> Match | None:
         home = to_team(home_raw, True)
         away = to_team(away_raw, False)
 
+        venue_raw = _safe(comp, "venue", default={}) or {}
+        addr = _safe(venue_raw, "address", default={}) or {}
+        venue_name = venue_raw.get("fullName") or ""
+        venue_city = addr.get("city") or ""
+        venue_country = addr.get("country") or ""
+
         for d in _safe(comp, "details", default=[]) or []:
             if (_safe(d, "type", "text") or "").lower() != "goal":
                 continue
@@ -156,6 +165,9 @@ def _parse_event(event: dict) -> Match | None:
             short_detail=status.get("shortDetail", ""),
             home=home,
             away=away,
+            venue=venue_name,
+            city=venue_city,
+            country=venue_country,
         )
     except Exception:
         return None
