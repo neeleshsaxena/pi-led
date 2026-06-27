@@ -17,6 +17,10 @@ from .standings import StandingsClient
 LOCAL_TZ = datetime.now().astimezone().tzinfo or ZoneInfo("UTC")
 PAGE_HOLD_SECONDS = float(os.environ.get("LED_PAGE_HOLD", "5.0"))
 GOAL_FLASH_SECONDS = float(os.environ.get("LED_GOAL_FLASH", "3.0"))
+# How many upcoming fixtures "WC Next" rotates through (across days). The old
+# behaviour showed only the single next calendar day, which is a lone static
+# card whenever that day has just one match.
+NEXT_COUNT = int(os.environ.get("LED_NEXT_COUNT", "8"))
 
 
 class WorldCupApp(LedApp):
@@ -77,9 +81,24 @@ class WorldCupApp(LedApp):
             if prev is not None and prev != cur and m.is_live:
                 self._goal_flash_until[m.id] = tick + GOAL_FLASH_SECONDS
 
+    def _upcoming_matches(self, snapshot):
+        """The next N fixtures by kickoff, on days strictly after today (local) —
+        so WC Next rotates through what's coming up instead of just the lone
+        next calendar day (which is one static card when that day has 1 match)."""
+        today_key = datetime.now(self.tz).strftime("%Y-%m-%d")
+        upcoming = [
+            m for m in snapshot.matches
+            if m.kickoff_utc.astimezone(self.tz).strftime("%Y-%m-%d") > today_key
+        ]
+        upcoming.sort(key=lambda m: m.kickoff_utc)
+        return upcoming[:NEXT_COUNT]
+
     async def _render_matches(self, mode: str, tick: float) -> Image.Image:
         snapshot = await self.espn.get()
-        day_matches = matches_page.pick_day_matches(snapshot, mode, self.tz)
+        if mode == "next":
+            day_matches = self._upcoming_matches(snapshot)
+        else:
+            day_matches = matches_page.pick_day_matches(snapshot, "today", self.tz)
         if not day_matches:
             return matches_page.render_empty("no fixtures")
         self._update_goal_flashes(day_matches, tick)

@@ -15,13 +15,12 @@ from pi_led_core.canvas import (
     draw_big,
     draw_big_centered,
     draw_centered,
-    draw_hline,
     draw_text,
     filled_rect,
     font_small,
     new_canvas,
-    pulse_color,
     scale_color,
+    sweep_hbar,
     text_width,
 )
 
@@ -42,74 +41,71 @@ def render(
 ) -> Image.Image:
     img = new_canvas()
     draw = ImageDraw.Draw(img)
-    font = font_small()
 
+    # Header: "GROUP X" in bold, with a full-brightness accent rule beneath.
     letter = _group_letter(group)
+    draw_big(draw, (4, 2), "GROUP", fill=WHITE, scale=1)
+    lx = WIDTH - 4 - big_text_width(letter, 2)
+    draw_big(draw, (lx, 0), letter, fill=ACCENT, scale=2)
+    sweep_hbar(draw, 0, WIDTH - 1, 13, ACCENT, tick)
 
-    label = "GROUP"
-    label_w = text_width(draw, label, font)
-    letter_w = big_text_width(letter, scale=2)
-    gap = 4
-    total_w = label_w + gap + letter_w
-    start_x = (WIDTH - total_w) // 2
-    draw_text(draw, (start_x, 4), label, fill=scale_color(ACCENT, 0.55), font=font)
-    letter_color = pulse_color(ACCENT, tick, period=2.4, min_factor=0.65, max_factor=1.0)
-    draw_big(draw, (start_x + label_w + gap, 0), letter, fill=letter_color, scale=2)
-
-    draw_hline(draw, 16, fill=DIM)
-
-    base_y = 19
-    row_h = 9
+    base_y = 17
+    row_h = 11
+    font = font_small()
     for i, e in enumerate(group.entries[:4]):
         rank = i + 1
         y = base_y + i * row_h
 
-        if rank <= 2:
-            badge = GREEN
-            text_color = WHITE
-        elif rank == 3:
-            badge = YELLOW
-            text_color = WHITE
-        else:
-            badge = scale_color(RED, 0.85)
-            text_color = GRAY
+        if rank <= 2:        # advance
+            badge, text_color = GREEN, WHITE
+        elif rank == 3:      # playoff
+            badge, text_color = YELLOW, WHITE
+        else:                # out
+            badge, text_color = RED, GRAY
 
-        filled_rect(draw, 0, y, 1, y + row_h - 2, badge)
-        draw_text(draw, (4, y), str(rank), fill=text_color, font=font)
+        # chunky full-brightness rank badge down the left edge
+        filled_rect(draw, 0, y, 2, y + 8, badge)
+        draw_big(draw, (5, y + 1), str(rank), fill=text_color, scale=1)
         team = (e.team_short or e.team_name[:3]).upper()[:3]
-        draw_text(draw, (12, y), team, fill=text_color, font=font)
+        draw_big(draw, (12, y + 1), team, fill=text_color, scale=1)
 
-        if e.played:
-            wd = f"W{e.wins}"
-            wd_w = text_width(draw, wd, font)
-            draw_text(draw, (WIDTH - wd_w - 14, y), wd, fill=scale_color(text_color, 0.55), font=font)
-
+        # right edge: points (bold, badge-colored); a compact win count sits
+        # just to its left with a clear gap so nothing overlaps the team.
         pts = str(e.points)
-        pts_w = text_width(draw, pts, font)
-        pts_color = badge if rank <= 2 else text_color
-        draw_text(draw, (WIDTH - pts_w - 3, y), pts, fill=pts_color, font=font)
+        pts_w = big_text_width(pts, 1)
+        draw_big(draw, (WIDTH - 4 - pts_w, y + 1), pts,
+                 fill=badge if rank <= 3 else text_color, scale=1)
+        if e.played:
+            wd = f"{e.wins}W"
+            wd_w = text_width(draw, wd, font)
+            draw_text(draw, (WIDTH - 8 - pts_w - wd_w, y + 1), wd,
+                      fill=scale_color(text_color, 0.5), font=font)
 
-    if page_count > 1:
-        dot_y = 60
-        if page_count * 4 + 4 <= WIDTH:
-            total_w = page_count * 4 - 2
-            start_x = (WIDTH - total_w) // 2
-            for i in range(page_count):
-                x = start_x + i * 4
-                if i == page_idx:
-                    filled_rect(draw, x, dot_y, x + 2, dot_y + 2, ACCENT)
-                else:
-                    draw.point((x + 1, dot_y + 1), fill=DIM)
-        else:
-            lbl = f"{page_idx + 1}/{page_count}"
-            draw_centered(draw, dot_y - 4, lbl, fill=GRAY)
-
+    _draw_pager(draw, page_idx, page_count)
     return img
+
+
+def _draw_pager(draw, page_idx, page_count) -> None:
+    if page_count <= 1:
+        return
+    dot_y = 61
+    if page_count * 4 + 4 <= WIDTH:
+        total_w = page_count * 4 - 2
+        start_x = (WIDTH - total_w) // 2
+        for i in range(page_count):
+            x = start_x + i * 4
+            if i == page_idx:
+                filled_rect(draw, x, dot_y, x + 2, dot_y + 2, ACCENT)
+            else:
+                draw.point((x + 1, dot_y + 1), fill=DIM)
+    else:
+        draw_centered(draw, dot_y - 1, f"{page_idx + 1}/{page_count}", fill=GRAY)
 
 
 def render_empty() -> Image.Image:
     img = new_canvas()
     draw = ImageDraw.Draw(img)
-    draw_big_centered(draw, 18, "?", fill=ACCENT, scale=2)
-    draw_centered(draw, 42, "no groups", fill=GRAY)
+    filled_rect(draw, 8, 9, WIDTH - 9, 9, ACCENT)
+    draw_big_centered(draw, 18, "?", fill=ACCENT, scale=3)
+    draw_centered(draw, 44, "no groups", fill=GRAY)
     return img

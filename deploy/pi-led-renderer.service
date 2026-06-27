@@ -3,18 +3,22 @@ Description=pi-led panel renderer (single panel owner)
 After=network-online.target
 Wants=network-online.target
 
+# Runs as root: the hzeller rgbmatrix backend needs GPIO/hardware access at
+# init. The library drops privileges to the 'daemon' user automatically after
+# initializing the panel, so the render loop itself is unprivileged.
 [Service]
-User=pi
+User=root
 WorkingDirectory=/home/pi/pi-led
 ExecStart=/home/pi/pi-led/.venv/bin/python -m controller.runner
 Restart=on-failure
 RestartSec=2
 
-# NOTE: once the HUB75 panel + Adafruit Bonnet are installed, the hzeller
-# rgbmatrix backend needs GPIO/hardware access. At that point either run this
-# unit as root (User=root) or grant the required privileges, and pin
-# LED_GPIO_SLOWDOWN / LED_BRIGHTNESS via Environment= lines. Until then this
-# runs as pi with the PNG sink.
+# Panel config confirmed during bring-up 2026-06-26 (Adafruit Bonnet #3211,
+# Adafruit #4732 64x64 P3, E->8 bridge soldered). The adafruit-hat mapping is
+# set in pi_led_core/matrix.py; these knobs tune timing/brightness.
+Environment=LED_GPIO_SLOWDOWN=2
+Environment=LED_BRIGHTNESS=60
+Environment=PYTHONUNBUFFERED=1
 
 [Install]
 WantedBy=multi-user.target

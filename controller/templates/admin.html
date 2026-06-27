@@ -54,10 +54,18 @@
             {% endfor %}
           </select>
         </div>
-        <div style="display:flex; align-items:flex-end; gap:.5rem;">
-          <button type="submit">Save</button>
-          <button type="submit" name="activate" value="1">Save &amp; show</button>
+        <div>
+          <label for="viz">Animation</label>
+          <select id="viz" name="viz">
+            {% for v in viz_choices %}
+            <option value="{{ v }}" {{ 'selected' if v == message_cfg.get('viz', 'solid') else '' }}>{{ v }}</option>
+            {% endfor %}
+          </select>
         </div>
+      </div>
+      <div class="row" style="margin-top:.7rem">
+        <button type="submit">Save</button>
+        <button type="submit" name="activate" value="1">Save &amp; show</button>
       </div>
     </form>
   </div>

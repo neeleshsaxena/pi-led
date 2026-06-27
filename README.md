@@ -80,3 +80,6 @@ See [`deploy/DEPLOY.md`](deploy/DEPLOY.md).
 | `LED_SINK` | auto | `png` forces PNG sink even on Pi |
 | `LED_GPIO_SLOWDOWN` | `2` | hzeller GPIO slowdown (Pi) |
 | `LED_BRIGHTNESS` | `60` | hzeller brightness 0–100 (Pi) |
+| `LED_DROP_PRIVS` | `0` | Pi: drop to `daemon` after init (`0`=stay root so renderer can read `.state.json`) |
+| `LED_PI_PREVIEW` | `1` | Pi: also tee a throttled preview PNG (`0` disables) |
+| `LED_PI_PREVIEW_INTERVAL` | `1.0` | Pi: seconds between preview frames |

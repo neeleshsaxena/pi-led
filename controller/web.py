@@ -9,6 +9,7 @@ from fastapi.templating import Jinja2Templates
 
 from apps import ALL_APPS
 from apps.messages.plugin import COLORS
+from apps.messages.render import VIZ_CHOICES
 from pi_led_core.canvas import new_canvas
 from pi_led_core.matrix import PREVIEW_PATH, PREVIEW_SCALE
 from pi_led_core.registry import AppRegistry
@@ -70,6 +71,7 @@ def admin(request: Request, _: str = Depends(admin_required)) -> HTMLResponse:
             "active": state.active,
             "message_cfg": state.config_for("messages"),
             "colors": list(COLORS.keys()),
+            "viz_choices": list(VIZ_CHOICES),
             "scale": PREVIEW_SCALE,
         },
     )
@@ -85,10 +87,11 @@ def set_view(view: str = Form(...), _: str = Depends(admin_required)) -> Redirec
 def set_message(
     text: str = Form(""),
     color: str = Form("white"),
+    viz: str = Form("solid"),
     activate: str = Form(""),
     _: str = Depends(admin_required),
 ) -> RedirectResponse:
-    state.set_config("messages", {"text": text, "color": color})
+    state.set_config("messages", {"text": text, "color": color, "viz": viz})
     if activate:
         state.set_active("messages:main")
     return RedirectResponse("/admin", status_code=303)

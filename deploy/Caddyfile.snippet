@@ -1,6 +1,8 @@
 # Append to /etc/caddy/Caddyfile on the Pi, then: sudo systemctl reload caddy
-# Mirrors the match-day-live block (ledpanel.local -> 127.0.0.1:5050).
+# Mirrors the match-day-live block (ledpanel.local -> 127.0.0.1:5050). The
+# global `auto_https off` is already set at the top of the live Caddyfile, so
+# .local hosts use the http:// scheme.
 
-panel.local {
+http://ledpanel.local {
     reverse_proxy 127.0.0.1:5070
 }

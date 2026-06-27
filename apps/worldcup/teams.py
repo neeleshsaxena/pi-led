@@ -6,13 +6,15 @@ each match card feels distinct at a glance.
 """
 from __future__ import annotations
 
-_WHITE = (240, 240, 240)
-_RED = (220, 32, 32)
-_BLUE = (32, 80, 220)
-_GREEN = (32, 180, 80)
-_YELLOW = (255, 200, 32)
-_BLACK = (16, 16, 16)
-_ORANGE = (255, 120, 0)
+# Punchy flag colors — the panel runs dim and blown-out, so push saturation and
+# value high. These paint full-brightness team edge bars / chips against black.
+_WHITE = (255, 255, 255)
+_RED = (255, 44, 44)
+_BLUE = (40, 96, 255)
+_GREEN = (40, 220, 90)
+_YELLOW = (255, 214, 36)
+_BLACK = (24, 24, 24)
+_ORANGE = (255, 130, 16)
 
 TEAM_COLORS: dict[str, tuple[tuple[int, int, int], tuple[int, int, int]]] = {
     # CONCACAF
