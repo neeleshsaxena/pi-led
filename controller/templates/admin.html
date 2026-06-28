@@ -2,83 +2,195 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>pi-led admin</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <title>pi-led · control</title>
   <style>
-    body { margin: 0; background: #111; color: #ddd; font-family: system-ui, sans-serif;
-           display: flex; flex-direction: column; align-items: center; gap: 1.5rem; padding: 2rem; }
-    .card { background: #1b1b1b; border: 1px solid #333; border-radius: 8px; padding: 1.25rem 1.5rem; width: min(420px, 92vw); }
-    h1 { margin: 0; font-size: 1.3rem; }
-    h2 { margin: 0 0 .75rem; font-size: 1rem; color: #9af; }
-    .views { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }
-    button { font: inherit; padding: .6rem .8rem; border-radius: 6px; border: 1px solid #444;
-             background: #262626; color: #ddd; cursor: pointer; }
-    button:hover { border-color: #6cf; }
-    button.active { background: #1d4ed8; border-color: #1d4ed8; color: #fff; }
-    label { display: block; margin: .5rem 0 .25rem; font-size: .85rem; color: #aaa; }
-    input[type=text], select { width: 100%; box-sizing: border-box; padding: .5rem;
-             background: #0e0e0e; border: 1px solid #444; border-radius: 6px; color: #eee; font: inherit; }
-    .row { display: flex; gap: .6rem; }
-    .row > * { flex: 1; }
-    img { image-rendering: pixelated; border: 3px solid #333; border-radius: 6px; display: block; margin: 0 auto; }
-    a { color: #6cf; }
-    form { margin: 0; }
+    :root {
+      --bg: #0c0d11;
+      --card: #15171e;
+      --card-2: #1b1e27;
+      --border: #272b36;
+      --text: #eceef3;
+      --muted: #8b93a7;
+      --accent: #ff7a18;     /* brand */
+      --blue: #3b82f6;       /* clickable view */
+      --blue-press: #2f6fe0;
+      --live: #22c55e;       /* currently-on-panel */
+      --radius: 14px;
+      --shadow: 0 1px 0 rgba(255,255,255,.03) inset, 0 6px 18px rgba(0,0,0,.35);
+    }
+    * { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; }
+    body {
+      margin: 0; background: radial-gradient(120% 80% at 50% -10%, #15171f 0%, var(--bg) 60%);
+      color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      padding: 18px 14px 40px; display: flex; flex-direction: column; align-items: center; gap: 16px;
+      min-height: 100vh;
+    }
+    .wrap { width: 100%; max-width: 460px; display: flex; flex-direction: column; gap: 16px; }
+
+    header { display: flex; align-items: center; justify-content: space-between; padding: 2px 4px; }
+    .brand { display: flex; align-items: baseline; gap: 8px; }
+    .brand .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent);
+      box-shadow: 0 0 10px var(--accent); align-self: center; }
+    .brand h1 { margin: 0; font-size: 1.15rem; letter-spacing: .5px; font-weight: 700; }
+    .brand .sub { color: var(--muted); font-size: .72rem; letter-spacing: .14em; text-transform: uppercase; }
+
+    .card { background: linear-gradient(180deg, var(--card-2), var(--card)); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 16px; box-shadow: var(--shadow); }
+    .card h2 { margin: 0 0 12px; font-size: .74rem; letter-spacing: .14em; text-transform: uppercase;
+      color: var(--muted); font-weight: 600; display: flex; align-items: center; gap: 8px; }
+
+    /* live preview */
+    .preview { padding: 14px; }
+    .preview .framewrap { display: flex; justify-content: center; }
+    .preview img { image-rendering: pixelated; width: 100%; max-width: 320px; aspect-ratio: 1 / 1;
+      border-radius: 10px; border: 1px solid #000; outline: 1px solid var(--border);
+      background: #000; box-shadow: 0 0 0 4px #0a0b0e, 0 10px 30px rgba(0,0,0,.5); }
+    .live-tag { display: inline-flex; align-items: center; gap: 7px; color: var(--live); }
+    .live-tag .pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--live);
+      box-shadow: 0 0 0 0 rgba(34,197,94,.6); animation: pulse 1.6s infinite; }
+    @keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(34,197,94,.55)} 70%{box-shadow:0 0 0 7px rgba(34,197,94,0)} 100%{box-shadow:0 0 0 0 rgba(34,197,94,0)} }
+    @media (prefers-reduced-motion: reduce) { .live-tag .pulse { animation: none; } }
+
+    /* view switcher */
+    .views { display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); gap: 10px; }
+    .views form { margin: 0; }
+    .viewbtn { width: 100%; min-height: 52px; border-radius: 11px; font: inherit; font-weight: 600;
+      font-size: .95rem; cursor: pointer; padding: 8px 12px; transition: transform .04s, background .15s, border-color .15s;
+      display: flex; align-items: center; justify-content: center; gap: 8px; text-align: center; }
+    /* clickable = blue */
+    .viewbtn.switch { background: rgba(59,130,246,.12); color: #cfe0ff; border: 1px solid rgba(59,130,246,.5); }
+    .viewbtn.switch:hover { background: rgba(59,130,246,.22); border-color: var(--blue); }
+    .viewbtn.switch:active { transform: translateY(1px); background: var(--blue-press); color: #fff; }
+    /* active = currently live, not clickable */
+    .viewbtn.live { background: linear-gradient(180deg, rgba(34,197,94,.22), rgba(34,197,94,.10));
+      color: #d8ffe6; border: 1px solid var(--live); cursor: default; box-shadow: 0 0 0 1px rgba(34,197,94,.15) inset; }
+    .viewbtn.live[disabled] { opacity: 1; }
+    .viewbtn .livedot { width: 8px; height: 8px; border-radius: 50%; background: var(--live);
+      box-shadow: 0 0 8px var(--live); animation: pulse 1.6s infinite; }
+
+    /* message composer */
+    label { display: block; margin: 0 0 7px; font-size: .8rem; color: var(--muted); font-weight: 500; }
+    .field { margin-bottom: 14px; }
+    input[type=text] { width: 100%; padding: 13px 14px; background: #0c0d11; border: 1px solid var(--border);
+      border-radius: 11px; color: var(--text); font: inherit; font-size: 1.05rem; }
+    input[type=text]:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(255,122,24,.18); }
+    .labelrow { display: flex; align-items: baseline; justify-content: space-between; }
+    .counter { font-size: .72rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+    /* color swatches */
+    .swatches { display: flex; flex-wrap: wrap; gap: 10px; }
+    .swatches input { position: absolute; opacity: 0; pointer-events: none; }
+    .swatches label { margin: 0; width: 34px; height: 34px; border-radius: 50%; cursor: pointer;
+      border: 2px solid rgba(255,255,255,.18); box-shadow: 0 2px 6px rgba(0,0,0,.4); transition: transform .05s; }
+    .swatches label:active { transform: scale(.92); }
+    .swatches input:checked + label { border-color: #fff; box-shadow: 0 0 0 3px rgba(255,255,255,.25); transform: scale(1.06); }
+    .sw-white { background:#f4f4f4 } .sw-red { background:#ee2820 } .sw-green { background:#28e85a }
+    .sw-yellow { background:#ffd424 } .sw-orange { background:#ff8a10 } .sw-blue { background:#409aff }
+    .sw-default { background:#9aa0ad }
+
+    select { width: 100%; padding: 12px 14px; background: #0c0d11; border: 1px solid var(--border);
+      border-radius: 11px; color: var(--text); font: inherit; font-size: 1rem; text-transform: capitalize;
+      appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+      background-position: right 16px center, right 11px center; background-size: 5px 5px, 5px 5px; background-repeat: no-repeat; }
+    select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(255,122,24,.18); }
+
+    .cta { width: 100%; min-height: 54px; border: none; border-radius: 12px; cursor: pointer;
+      font: inherit; font-weight: 700; font-size: 1.02rem; color: #1a0c00; margin-top: 4px;
+      background: linear-gradient(180deg, #ffa04d, var(--accent)); box-shadow: 0 6px 16px rgba(255,122,24,.32); }
+    .cta:active { transform: translateY(1px); box-shadow: 0 3px 10px rgba(255,122,24,.3); }
+
+    footer { color: var(--muted); font-size: .74rem; text-align: center; }
+    footer a { color: var(--blue); text-decoration: none; }
+    /* Color + Animation stack vertically — bulletproof on any phone width. */
+    .two { display: flex; flex-direction: column; gap: 14px; }
   </style>
 </head>
 <body>
-  <h1>pi-led admin</h1>
+  <div class="wrap">
+    <header>
+      <div class="brand">
+        <span class="dot"></span>
+        <h1>pi-led</h1>
+      </div>
+      <span class="sub">control</span>
+    </header>
 
-  <div class="card">
-    <h2>Active view</h2>
-    <div class="views">
-      {% for v in catalog %}
-      <form method="post" action="/admin/view">
-        <input type="hidden" name="view" value="{{ v.key }}" />
-        <button type="submit" class="{{ 'active' if v.key == active else '' }}" style="width:100%">{{ v.label }}</button>
-      </form>
-      {% endfor %}
+    <!-- LIVE PREVIEW -->
+    <div class="card preview">
+      <h2 class="live-tag"><span class="pulse"></span> Live on panel</h2>
+      <div class="framewrap">
+        <img id="frame" src="/led-preview.png" alt="LED preview" />
+      </div>
     </div>
-  </div>
 
-  <div class="card">
-    <h2>Message</h2>
-    <form method="post" action="/admin/messages">
-      <label for="text">Text</label>
-      <input type="text" id="text" name="text" value="{{ message_cfg.get('text', '') }}" maxlength="120" />
-      <div class="row">
-        <div>
-          <label for="color">Color</label>
-          <select id="color" name="color">
-            {% for c in colors %}
-            <option value="{{ c }}" {{ 'selected' if c == message_cfg.get('color', 'white') else '' }}>{{ c }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div>
-          <label for="viz">Animation</label>
-          <select id="viz" name="viz">
-            {% for v in viz_choices %}
-            <option value="{{ v }}" {{ 'selected' if v == message_cfg.get('viz', 'solid') else '' }}>{{ v }}</option>
-            {% endfor %}
-          </select>
-        </div>
+    <!-- VIEW SWITCHER -->
+    <div class="card">
+      <h2>View</h2>
+      <div class="views">
+        {% for v in catalog %}
+        <form method="post" action="/admin/view">
+          <input type="hidden" name="view" value="{{ v.key }}" />
+          {% if v.key == active %}
+          <button type="button" class="viewbtn live" disabled aria-current="true">
+            <span class="livedot"></span>{{ v.label }}
+          </button>
+          {% else %}
+          <button type="submit" class="viewbtn switch">{{ v.label }}</button>
+          {% endif %}
+        </form>
+        {% endfor %}
       </div>
-      <div class="row" style="margin-top:.7rem">
-        <button type="submit">Save</button>
-        <button type="submit" name="activate" value="1">Save &amp; show</button>
-      </div>
-    </form>
-  </div>
+    </div>
 
-  <div class="card">
-    <h2>Live preview</h2>
-    <img id="frame" src="/led-preview.png" width="{{ 64 * scale }}" height="{{ 64 * scale }}" alt="LED preview" />
-    <p style="text-align:center; margin:.75rem 0 0;"><a href="/preview">full preview →</a></p>
+    <!-- MESSAGE COMPOSER -->
+    <div class="card">
+      <h2>Message</h2>
+      <form method="post" action="/admin/messages">
+        <div class="field">
+          <div class="labelrow">
+            <label for="text">Text</label>
+            <span class="counter"><span id="count">0</span>/120</span>
+          </div>
+          <input type="text" id="text" name="text" value="{{ message_cfg.get('text', '') }}"
+                 maxlength="120" autocomplete="off" placeholder="Type a message…" />
+        </div>
+
+        <div class="two">
+          <div class="field" style="margin:0">
+            <label>Color</label>
+            <div class="swatches">
+              {% for c in colors %}
+              <input type="radio" id="color-{{ c }}" name="color" value="{{ c }}"
+                     {{ 'checked' if c == message_cfg.get('color', 'white') else '' }} />
+              <label for="color-{{ c }}" class="sw-{{ c if c in ['white','red','green','yellow','orange','blue'] else 'default' }}" title="{{ c }}"></label>
+              {% endfor %}
+            </div>
+          </div>
+          <div class="field" style="margin:0">
+            <label for="viz">Animation</label>
+            <select id="viz" name="viz">
+              {% for v in viz_choices %}
+              <option value="{{ v }}" {{ 'selected' if v == message_cfg.get('viz', 'solid') else '' }}>{{ v }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+
+        <button type="submit" name="activate" value="1" class="cta">Save &amp; show</button>
+      </form>
+    </div>
+
+    <footer><a href="/preview">Open full preview →</a></footer>
   </div>
 
   <script>
     const img = document.getElementById('frame');
     setInterval(() => { img.src = '/led-preview.png?t=' + Date.now(); }, 250);
+    const t = document.getElementById('text'), c = document.getElementById('count');
+    const upd = () => { c.textContent = t.value.length; };
+    t.addEventListener('input', upd); upd();
   </script>
 </body>
 </html>
