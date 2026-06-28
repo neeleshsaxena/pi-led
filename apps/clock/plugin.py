@@ -20,12 +20,20 @@ deploy/UI-UX-WORKSTREAM.md.
 from __future__ import annotations
 
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from PIL import Image
 
 from pi_led_core.plugin import LedApp, RenderContext, ViewSpec
 
 from .render import render_analog, render_digital
+
+# Zones shown by the digital view, top-to-bottom. (label, tz). ZoneInfo handles
+# DST automatically — "PST" is shown as a fixed label even when LA is on PDT.
+ZONES = [
+    ("PST", ZoneInfo("America/Los_Angeles")),
+    ("IST", ZoneInfo("Asia/Kolkata")),
+]
 
 
 class ClockApp(LedApp):
@@ -43,8 +51,9 @@ class ClockApp(LedApp):
         return {"hour24": False, "show_date": True}
 
     async def render(self, ctx: RenderContext) -> Image.Image:
-        now = datetime.now()  # local wall-clock time (Pi/Mac local tz)
         cfg = ctx.config or {}
         if ctx.view == "analog":
-            return render_analog(now, cfg, ctx.tick)
-        return render_digital(now, cfg, ctx.tick)
+            # analog stays a single face, on the first zone (PST)
+            return render_analog(datetime.now(ZONES[0][1]), cfg, ctx.tick)
+        zones = [(label, datetime.now(tz)) for label, tz in ZONES]
+        return render_digital(zones, cfg, ctx.tick)
