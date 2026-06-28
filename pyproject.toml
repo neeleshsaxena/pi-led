@@ -20,4 +20,4 @@ dependencies = [
 # from hzeller's source; the sink auto-detects it. Not a pip dependency.
 
 [tool.setuptools]
-packages = ["pi_led_core", "apps", "apps.messages", "apps.worldcup", "controller"]
+packages = ["pi_led_core", "apps", "apps.messages", "apps.worldcup", "apps.clock", "controller"]

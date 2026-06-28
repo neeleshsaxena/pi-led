@@ -8,6 +8,7 @@ from PIL import Image, ImageDraw
 from pi_led_core.canvas import (
     ACCENT,
     CYAN,
+    GLYPH_H,
     GRAY,
     HEIGHT,
     RED,
@@ -18,11 +19,9 @@ from pi_led_core.canvas import (
     draw_big,
     draw_big_centered,
     draw_centered,
-    draw_micro_centered,
     draw_text,
     filled_rect,
     font_small,
-    micro_text_width,
     new_canvas,
     pulse_color,
     rainbow,
@@ -198,25 +197,36 @@ def render(
             draw_big(draw, (4 + ft_w + 8, 38), tail[:6], fill=GRAY, scale=1)
         _draw_scorer(draw, match)
     else:
-        _draw_location(draw, match)
+        _draw_location(img, match, tick, y=36)
         text, color = _kickoff_countdown(match, tz)
-        draw_big_centered(draw, 45, text, fill=color, scale=1)
+        draw_big_centered(draw, 47, text, fill=color, scale=1)
 
     _draw_pager(draw, page_idx, page_count)
     return img
 
 
-def _draw_location(draw, match, y: int = 37) -> None:
-    """Stopgap (lead-added): show the city centered in the 3x5 micro font for
-    scheduled matches, where there's free space. Full styling — scrolling
-    stadium name, showing it on live/final cards — is the UI/UX agent's call;
-    see deploy/UI-ASKS.md. Data: match.venue / match.city / match.country."""
-    city = _ascii_upper((match.city or "").split(",")[0].strip())
-    if not city:
+def _draw_location(img, match, tick, y: int = 36) -> None:
+    """Stadium/venue line for scheduled cards, in the readable 5x7 font. Centers
+    if it fits; otherwise scrolls right→left, hard-clipped to a safe inner band
+    so it never paints over the team edge bars. (Scheduled cards only — live/
+    final cards use that lower band for the scorer line.)"""
+    venue = _ascii_upper((match.venue or "").strip())
+    city = _ascii_upper((match.city or "").strip())   # "City, State"
+    text = "  -  ".join(p for p in (venue, city) if p)
+    if not text:
         return
-    while city and micro_text_width(city) > WIDTH - 6:
-        city = city[:-1]
-    draw_micro_centered(draw, y, city, fill=GRAY)
+    bx0, bx1 = 4, WIDTH - 5
+    bw = bx1 - bx0 + 1
+    tw = big_text_width(text, 1)
+    if tw <= bw:
+        draw_big(ImageDraw.Draw(img), (bx0 + (bw - tw) // 2, y), text, fill=GRAY, scale=1)
+        return
+    # scroll: draw onto a band-sized strip and paste — the strip edges clip it
+    strip = Image.new("RGB", (bw, GLYPH_H), (0, 0, 0))
+    travel = tw + bw
+    off = int((tick * 16) % travel)
+    draw_big(ImageDraw.Draw(strip), (bw - off, 0), text, fill=GRAY, scale=1)
+    img.paste(strip, (bx0, y))
 
 
 def lerp_white(c, t: float = 0.45):

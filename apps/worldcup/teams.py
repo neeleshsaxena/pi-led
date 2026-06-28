@@ -9,7 +9,7 @@ from __future__ import annotations
 # Punchy flag colors — the panel runs dim and blown-out, so push saturation and
 # value high. These paint full-brightness team edge bars / chips against black.
 _WHITE = (255, 255, 255)
-_RED = (255, 44, 44)
+_RED = (238, 40, 32)   # rich scarlet (user pick "B")
 _BLUE = (40, 96, 255)
 _GREEN = (40, 220, 90)
 _YELLOW = (255, 214, 36)

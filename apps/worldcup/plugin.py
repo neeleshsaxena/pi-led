@@ -44,8 +44,8 @@ class WorldCupApp(LedApp):
 
     def views(self) -> list[ViewSpec]:
         return [
-            ViewSpec(id="today", label="WC Today"),
-            ViewSpec(id="next", label="WC Next"),
+            ViewSpec(id="today", label="Matches Today"),
+            ViewSpec(id="next", label="Next Scheduled"),
             ViewSpec(id="standings", label="WC Standings"),
         ]
 
