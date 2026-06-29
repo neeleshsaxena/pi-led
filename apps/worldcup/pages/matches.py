@@ -8,27 +8,29 @@ from PIL import Image, ImageDraw
 from pi_led_core.canvas import (
     ACCENT,
     CYAN,
-    GLYPH_H,
     GRAY,
     HEIGHT,
+    PX_BIG,
+    PX_HUGE,
+    PX_SMALL,
     RED,
     WHITE,
     WIDTH,
     YELLOW,
-    big_text_width,
-    draw_big,
-    draw_big_centered,
-    draw_centered,
-    draw_text,
+    draw_micro,
+    draw_micro_centered,
+    draw_px,
+    draw_px_centered,
     filled_rect,
-    font_small,
+    micro_text_width,
     new_canvas,
     pulse_color,
+    px_cap_height,
+    px_text_width,
     rainbow,
     scale_color,
     sparkle,
     sweep_vbar,
-    text_width,
 )
 
 from ..espn import Match, Snapshot
@@ -99,11 +101,11 @@ def _format_scorer_line(goal) -> str:
 
 
 def _draw_header(draw, home, away, home_primary, away_primary) -> None:
-    """Team abbreviations (bold 5x7) with a full-brightness flag-color chip."""
-    home_w = big_text_width(home, 1)
-    away_w = big_text_width(away, 1)
-    draw_big(draw, (4, 1), home, fill=WHITE, scale=1)
-    draw_big(draw, (WIDTH - 4 - away_w, 1), away, fill=WHITE, scale=1)
+    """Team abbreviations (kenpixel) with a full-brightness flag-color chip."""
+    home_w = px_text_width(home, PX_SMALL)
+    away_w = px_text_width(away, PX_SMALL)
+    draw_px(draw, (4, 1), home, fill=WHITE, size=PX_SMALL)
+    draw_px(draw, (WIDTH - 4 - away_w, 1), away, fill=WHITE, size=PX_SMALL)
     filled_rect(draw, 4, 9, 4 + home_w - 1, 10, home_primary)
     filled_rect(draw, WIDTH - 4 - away_w, 9, WIDTH - 5, 10, away_primary)
 
@@ -154,7 +156,7 @@ def render(
     # ── hero: score or kickoff time (crisp, no glow) ──
     if is_scheduled:
         kickoff = match.kickoff_utc.astimezone(tz)
-        draw_big_centered(draw, 20, kickoff.strftime("%H:%M"), fill=YELLOW, scale=2)
+        draw_px_centered(draw, 20, kickoff.strftime("%H:%M"), fill=YELLOW, size=PX_BIG)
     else:
         home_s = (match.home.score or "0")[:2]
         away_s = (match.away.score or "0")[:2]
@@ -172,7 +174,7 @@ def render(
                 color = lerp_white(away_primary)
             else:
                 color = scale_color(WHITE, 0.9)
-        draw_big_centered(draw, 20, score_str, fill=color, scale=2)
+        draw_px_centered(draw, 20, score_str, fill=color, size=PX_BIG)
 
     # ── footer: live / HT / FT / countdown (readable font, bright) ──
     if flashing:
@@ -180,26 +182,26 @@ def render(
     elif is_halftime:
         ht = pulse_color(YELLOW, tick, period=2.0, min_factor=0.6)
         draw.ellipse([4, 38, 9, 43], fill=ht)
-        draw_big(draw, (13, 37), "HT", fill=YELLOW, scale=1)
+        draw_px(draw, (13, 38), "HT", fill=YELLOW, size=PX_SMALL)
         _draw_scorer(draw, match)
     elif match.is_live:
         dot = pulse_color(RED, tick, period=1.6, min_factor=0.6)
         draw.ellipse([4, 38, 9, 43], fill=dot)
         status_txt = (match.short_detail or match.status_label or "LIVE")[:8].upper()
-        draw_big(draw, (13, 37), status_txt, fill=WHITE, scale=1)
+        draw_px(draw, (13, 38), status_txt, fill=WHITE, size=PX_SMALL)
         _draw_scorer(draw, match)
     elif match.is_final:
-        ft_w = big_text_width("FT", 1)
-        filled_rect(draw, 4, 37, 4 + ft_w + 3, 45, scale_color(GRAY, 0.6))
-        draw_big(draw, (6, 38), "FT", fill=WHITE, scale=1)
+        ft_w = px_text_width("FT", PX_SMALL)
+        filled_rect(draw, 4, 37, 4 + ft_w + 3, 46, scale_color(GRAY, 0.6))
+        draw_px(draw, (6, 38), "FT", fill=WHITE, size=PX_SMALL)
         tail = (match.short_detail or "").strip().upper()
         if tail and tail not in {"FT", "FULL", "FULL TIME", "FINAL"}:
-            draw_big(draw, (4 + ft_w + 8, 38), tail[:6], fill=GRAY, scale=1)
+            draw_px(draw, (4 + ft_w + 8, 38), tail[:6], fill=GRAY, size=PX_SMALL)
         _draw_scorer(draw, match)
     else:
         _draw_location(img, match, tick, y=36)
         text, color = _kickoff_countdown(match, tz)
-        draw_big_centered(draw, 47, text, fill=color, scale=1)
+        draw_px_centered(draw, 47, text, fill=color, size=PX_SMALL)
 
     _draw_pager(draw, page_idx, page_count)
     return img
@@ -217,15 +219,16 @@ def _draw_location(img, match, tick, y: int = 36) -> None:
         return
     bx0, bx1 = 4, WIDTH - 5
     bw = bx1 - bx0 + 1
-    tw = big_text_width(text, 1)
+    tw = px_text_width(text, PX_SMALL)
     if tw <= bw:
-        draw_big(ImageDraw.Draw(img), (bx0 + (bw - tw) // 2, y), text, fill=GRAY, scale=1)
+        draw_px(ImageDraw.Draw(img), (bx0 + (bw - tw) // 2, y), text, fill=GRAY, size=PX_SMALL)
         return
     # scroll: draw onto a band-sized strip and paste — the strip edges clip it
-    strip = Image.new("RGB", (bw, GLYPH_H), (0, 0, 0))
+    strip_h = px_cap_height(PX_SMALL) + 2  # room for comma tails below the baseline
+    strip = Image.new("RGB", (bw, strip_h), (0, 0, 0))
     travel = tw + bw
     off = int((tick * 16) % travel)
-    draw_big(ImageDraw.Draw(strip), (bw - off, 0), text, fill=GRAY, scale=1)
+    draw_px(ImageDraw.Draw(strip), (bw - off, 0), text, fill=GRAY, size=PX_SMALL)
     img.paste(strip, (bx0, y))
 
 
@@ -243,10 +246,9 @@ def _draw_scorer(draw, match) -> None:
     if not goal:
         return
     line = _format_scorer_line(goal)
-    font = font_small()
-    w = text_width(draw, line, font)
+    w = micro_text_width(line)
     x = 4 if goal.side == "home" else WIDTH - 4 - w
-    draw_text(draw, (x, 49), line, fill=scale_color(WHITE, 0.8), font=font)
+    draw_micro(draw, (x, 50), line, fill=scale_color(WHITE, 0.85))
 
 
 def _draw_goal_flash(draw, match, tick) -> None:
@@ -257,9 +259,9 @@ def _draw_goal_flash(draw, match, tick) -> None:
     draw.rectangle([0, 0, WIDTH - 1, HEIGHT - 1], outline=border)
     goal = match.latest_goal
     side = goal.side if goal else "home"
-    w = big_text_width("GOAL!", 1)
+    w = px_text_width("GOAL!", PX_SMALL)
     x = 4 if side == "home" else WIDTH - 4 - w
-    draw_big(draw, (x, 50), "GOAL!", fill=pulse_color(border, tick, period=0.5, min_factor=0.7), scale=1)
+    draw_px(draw, (x, 50), "GOAL!", fill=pulse_color(border, tick, period=0.5, min_factor=0.7), size=PX_SMALL)
 
 
 def render_empty(reason: str = "No matches") -> Image.Image:
@@ -267,7 +269,7 @@ def render_empty(reason: str = "No matches") -> Image.Image:
     img = new_canvas()
     draw = ImageDraw.Draw(img)
     filled_rect(draw, 8, 8, WIDTH - 9, 8, ACCENT)
-    draw_big_centered(draw, 13, "WC", fill=ACCENT, scale=3)
-    draw_big_centered(draw, 35, "26", fill=WHITE, scale=2)
-    draw_centered(draw, 51, reason[:11], fill=GRAY)
+    draw_px_centered(draw, 13, "WC", fill=ACCENT, size=PX_HUGE)
+    draw_px_centered(draw, 38, "26", fill=WHITE, size=PX_BIG)
+    draw_micro_centered(draw, 56, _ascii_upper(reason)[:16], fill=GRAY)
     return img
