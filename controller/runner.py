@@ -15,6 +15,8 @@ from pi_led_core.state import ControllerState
 
 from .config import DEFAULT_ACTIVE, FRAME_INTERVAL, TRANSITION_SECONDS
 
+CAROUSEL_ID = "carousel"
+
 
 class Controller:
     """The single panel owner. Reads the active view from ControllerState and
@@ -29,6 +31,10 @@ class Controller:
         self._last_img: Image.Image | None = None
         self._transition_from: Image.Image | None = None
         self._transition_start = 0.0
+        # Carousel rotation state (only live while the active view is the carousel).
+        self._in_carousel = False
+        self._carousel_idx = 0
+        self._carousel_anchor = 0.0
 
     def _start_transition(self) -> None:
         if self._last_img is not None and TRANSITION_SECONDS > 0:
@@ -45,17 +51,50 @@ class Controller:
         alpha = max(0.0, min(1.0, elapsed / TRANSITION_SECONDS))
         return Image.blend(self._transition_from, fresh, alpha)
 
+    def _rotatable(self, key: str) -> bool:
+        """A view key is usable in the carousel rotation if it resolves to a real
+        plugin that isn't the carousel itself (guards against self-recursion)."""
+        app, _ = self.registry.resolve(key)
+        return app is not None and app.id != CAROUSEL_ID
+
+    def _carousel_expand(self, app, now: float) -> str:
+        """The active view is the carousel: return the underlying view key to show
+        right now, advancing through the configured list on the dwell timer."""
+        cfg = self.state.config_for(app.id)
+        views = [k for k in (cfg.get("views") or []) if self._rotatable(k)]
+        if not views:
+            return DEFAULT_ACTIVE  # nothing valid configured: degrade gracefully
+        dwell = max(2.0, float(cfg.get("dwell", 10.0)))
+        if not self._in_carousel:  # fresh entry into carousel mode: start clean
+            self._in_carousel = True
+            self._carousel_idx = 0
+            self._carousel_anchor = now
+        elapsed = now - self._carousel_anchor
+        if elapsed >= dwell:
+            steps = int(elapsed // dwell)
+            self._carousel_idx += steps
+            self._carousel_anchor += steps * dwell
+        return views[self._carousel_idx % len(views)]
+
     async def _render_active(self) -> Image.Image:
+        now = time.monotonic()
         key = self.state.active
+        app, view_id = self.registry.resolve(key)
+        if app is not None and app.id == CAROUSEL_ID:
+            # Expand the carousel to whichever view is due now, then render that.
+            key = self._carousel_expand(app, now)
+            app, view_id = self.registry.resolve(key)
+        else:
+            self._in_carousel = False
+
         if key != self._last_key:
             print(f"[led] view -> {key}")
             self._start_transition()
             self._last_key = key
-        app, view_id = self.registry.resolve(key)
         if app is None:
             return new_canvas()  # unknown plugin: blank panel
         ctx = RenderContext(
-            tick=time.monotonic(),
+            tick=now,
             view=view_id,
             config=self.state.config_for(app.id),
         )
