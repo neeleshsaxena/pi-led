@@ -20,19 +20,20 @@ from PIL import Image, ImageDraw
 from pi_led_core.canvas import (
     ACCENT,
     CYAN,
-    GLYPH_W,
     GRAY,
     HEIGHT,
+    PX_BIG,
+    PX_SMALL,
     WHITE,
     WIDTH,
-    big_text_width,
-    draw_big,
-    draw_big_centered,
+    YELLOW,
     draw_micro,
+    draw_px,
     filled_rect,
     hsv_color,
     micro_text_width,
     new_canvas,
+    px_text_width,
     pulse_color,
     scale_color,
 )
@@ -54,29 +55,17 @@ def _subsecond(now: datetime) -> float:
 # ─── digital ─────────────────────────────────────────────────────────────────
 
 
-def _draw_waves(draw, tick: float, sub: float, y_mid: int = 52) -> None:
-    """Two layered sine waves drifting across the lower band + a bright marker
-    that rides the crest, advancing once per minute with the seconds. The cool,
-    glanceable 'this clock is alive' element."""
+def _wave_divider(draw, tick: float, y_mid: int = 29) -> None:
+    """Animated flowing divider between the two timezone bands: two thin sine
+    waves drifting in opposite directions (a gentle interference shimmer). Lives
+    in the dead space between the zones, so it adds life without eating room.
+    Bright pixels only — flicker-safe."""
     x0, x1 = 2, WIDTH - 2
-    # back wave — slower, wider, steady cool blue
-    back = []
-    for x in range(x0, x1):
-        y = y_mid + 5.0 * math.sin(x * 0.21 + tick * 1.3)
-        back.append((x, int(round(y))))
+    back = [(x, int(round(y_mid + 2.0 * math.sin(x * 0.34 + tick * 1.6)))) for x in range(x0, x1)]
     draw.line(back, fill=(46, 92, 180))
-    # front wave — faster, color drifts through the cool end of the spectrum
-    col = hsv_color(0.52 + 0.16 * math.sin(tick * 0.25), 0.9, 1.0)
-    front = []
-    for x in range(x0, x1):
-        y = y_mid + 4.0 * math.sin(x * 0.30 + tick * 2.5)
-        front.append((x, int(round(y))))
+    col = hsv_color(0.52 + 0.12 * math.sin(tick * 0.3), 0.85, 1.0)  # cool, drifting
+    front = [(x, int(round(y_mid + 2.0 * math.sin(x * 0.34 - tick * 2.3)))) for x in range(x0, x1)]
     draw.line(front, fill=col)
-    # seconds marker rides the front wave (white, crisp)
-    frac = sub / 60.0
-    mx = x0 + int(frac * (x1 - x0 - 1))
-    my = int(round(y_mid + 4.0 * math.sin(mx * 0.30 + tick * 2.5)))
-    draw.ellipse([mx - 1, my - 1, mx + 1, my + 1], fill=WHITE)
 
 
 # Per-zone accent: PST cool cyan, IST warm accent. Others fall back to cyan.
@@ -90,24 +79,27 @@ def _zone(draw, y0: int, label: str, dt: datetime, cfg: dict) -> None:
     hour24 = bool(cfg.get("hour24", False))
     sub = _subsecond(dt)
 
-    # label (left) + date (right), micro font — secondary info
-    draw_micro(draw, (3, y0 + 1), label, fill=accent)
+    # zone label (kenpixel small, accent) + date (micro, right, muted)
+    draw_px(draw, (3, y0 + 1), label, fill=accent, size=PX_SMALL)
     if cfg.get("show_date", True):
         date_str = f"{_DOW[dt.weekday()]} {dt.day} {_MON[dt.month - 1]}"
-        draw_micro(draw, (WIDTH - 3 - micro_text_width(date_str), y0 + 1), date_str, fill=GRAY)
+        draw_micro(draw, (WIDTH - 3 - micro_text_width(date_str), y0 + 2), date_str, fill=GRAY)
 
-    # big HH:MM with breathing colon
+    # big HH:MM (kenpixel) with a breathing colon
     hh, mm = _hh(dt, hour24), dt.strftime("%M")
-    ty = y0 + 8
-    draw_big(draw, (3, ty), f"{hh}:{mm}", fill=WHITE, scale=2)
-    colon_x = 3 + len(hh) * (GLYPH_W * 2 + 1)
+    ty = y0 + 9
+    x = 3
+    draw_px(draw, (x, ty), hh, fill=WHITE, size=PX_BIG)
+    x += px_text_width(hh, PX_BIG)
     b = 0.30 + 0.70 * (0.5 + 0.5 * math.cos(sub * math.tau))
-    draw_big(draw, (colon_x, ty), ":", fill=scale_color(WHITE, b), scale=2)
+    draw_px(draw, (x, ty), ":", fill=scale_color(WHITE, b), size=PX_BIG)
+    x += px_text_width(":", PX_BIG)
+    draw_px(draw, (x, ty), mm, fill=WHITE, size=PX_BIG)
     if not hour24:
-        draw_micro(draw, (WIDTH - 4, ty + 4), dt.strftime("%p")[0], fill=scale_color(accent, 0.9))
+        draw_px(draw, (WIDTH - 6, ty + 1), dt.strftime("%p")[0], fill=scale_color(accent, 0.9), size=PX_SMALL)
 
     # seconds sweep bar (fills across the minute)
-    by = y0 + 26
+    by = y0 + 27
     filled_rect(draw, 3, by, WIDTH - 4, by, scale_color(GRAY, 0.35))
     x1 = 3 + int((sub / 60.0) * (WIDTH - 7))
     if x1 > 3:
@@ -121,7 +113,7 @@ def render_digital(zones, cfg: dict, tick: float) -> Image.Image:
     draw = ImageDraw.Draw(img)
     for i, (label, dt) in enumerate(zones[:2]):
         _zone(draw, i * 32, label, dt, cfg)
-    draw.line([(2, 31), (WIDTH - 3, 31)], fill=scale_color(GRAY, 0.5))
+    _wave_divider(draw, tick)
     return img
 
 
@@ -134,35 +126,58 @@ def _hand(draw, cx, cy, angle, length, color, width=1) -> None:
     draw.line([cx, cy, x, y], fill=color, width=width)
 
 
+_NUMERALS = ((0, "12"), (3, "3"), (6, "6"), (9, "9"))
+
+
 def render_analog(now: datetime, cfg: dict, tick: float) -> Image.Image:
     img = new_canvas()
     draw = ImageDraw.Draw(img)
     cx, cy, r = WIDTH // 2, HEIGHT // 2, 30
     sub = _subsecond(now)
 
-    # cool rim
-    draw.ellipse([cx - r, cy - r, cx + r, cy + r], outline=scale_color(CYAN, 0.45))
+    # cool rim with a faint breathing
+    rim = pulse_color(CYAN, tick, period=4.0, min_factor=0.4)
+    draw.ellipse([cx - r, cy - r, cx + r, cy + r], outline=scale_color(rim, 0.6))
+
     # glowing second-sweep arc: grows from 12 o'clock around the dial each minute
     end = -90 + sub * 6.0
     arc_col = hsv_color(0.08, 0.95, 1.0)  # warm accent
     draw.arc([cx - r + 1, cy - r + 1, cx + r - 1, cy + r - 1], -90, end, fill=ACCENT)
-    draw.arc([cx - r, cy - r, cx + r, cy + r], -90, end, fill=scale_color(arc_col, 0.5))
+    draw.arc([cx - r, cy - r, cx + r, cy + r], -90, end, fill=scale_color(arc_col, 0.55))
 
-    # hour ticks (brighter than before; cardinals in white)
+    # minor ticks at the 8 non-cardinal hours (cardinals get numerals instead)
     for i in range(12):
+        if i % 3 == 0:
+            continue
         a = math.radians(i * 30 - 90)
-        outer, inner = r - 2, r - (6 if i % 3 == 0 else 4)
-        col = WHITE if i % 3 == 0 else scale_color(GRAY, 1.0)
+        outer, inner = r - 2, r - 5
         draw.line(
             [cx + math.cos(a) * inner, cy + math.sin(a) * inner,
              cx + math.cos(a) * outer, cy + math.sin(a) * outer],
-            fill=col,
+            fill=scale_color(GRAY, 0.95),
         )
 
+    # cardinal numerals (12 / 3 / 6 / 9), kenpixel, tucked just inside the rim
+    for idx, txt in _NUMERALS:
+        a = math.radians(idx * 30 - 90)
+        nx = cx + math.cos(a) * (r - 8)
+        ny = cy + math.sin(a) * (r - 8)
+        w = px_text_width(txt, PX_SMALL)
+        draw_px(draw, (int(nx - w / 2), int(ny - 3)), txt, fill=WHITE, size=PX_SMALL)
+
     h, m = now.hour % 12, now.minute
-    _hand(draw, cx, cy, math.radians((h + m / 60) * 30 - 90), r * 0.48, WHITE, 2)
-    _hand(draw, cx, cy, math.radians((m + sub / 60) * 6 - 90), r * 0.72, CYAN, 1)
-    _hand(draw, cx, cy, math.radians(sub * 6 - 90), r * 0.82, ACCENT, 1)
+    _hand(draw, cx, cy, math.radians((h + m / 60) * 30 - 90), r * 0.46, WHITE, 2)
+    _hand(draw, cx, cy, math.radians((m + sub / 60) * 6 - 90), r * 0.70, CYAN, 2)
+
+    # second hand + a bright "comet head" riding its tip
+    sa = math.radians(sub * 6 - 90)
+    _hand(draw, cx, cy, sa, r * 0.80, ACCENT, 1)
+    hx = cx + math.cos(sa) * (r * 0.80)
+    hy = cy + math.sin(sa) * (r * 0.80)
+    head = pulse_color(YELLOW, tick, period=0.5, min_factor=0.6)
+    draw.ellipse([hx - 1, hy - 1, hx + 1, hy + 1], fill=head)
+    # small counterweight on the opposite side
+    _hand(draw, cx, cy, sa + math.pi, r * 0.16, scale_color(ACCENT, 0.8), 1)
 
     # breathing center hub
     hub = pulse_color(WHITE, tick, period=1.0, min_factor=0.5)

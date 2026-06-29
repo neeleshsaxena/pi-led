@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 from PIL import Image, ImageDraw, ImageFont
 
 WIDTH = 64
@@ -35,6 +37,70 @@ def font_small() -> ImageFont.ImageFont:
 
 def new_canvas(bg: tuple[int, int, int] = BLACK) -> Image.Image:
     return Image.new("RGB", (WIDTH, HEIGHT), bg)
+
+
+# ─── pixel display font (kenpixel, CC0) ──────────────────────────────────────
+# A nicer, designed pixel font for the panel. It's an 8px-grid TrueType, so it
+# renders pixel-crisp ONLY at multiples of 8 (use PX_SMALL=8 for body / labels,
+# PX_BIG=16 for hero numbers, PX_HUGE=24). Anti-aliasing MUST be off
+# (ImageDraw.fontmode="1") or the soft edge pixels go dim and flicker on HUB75.
+# Full glyph set incl. a real ° : / % , . ' so no hand-drawn degree ring needed.
+
+_FONT_PATH = os.path.join(os.path.dirname(__file__), "fonts", "kenpixel.ttf")
+_px_cache: dict[int, ImageFont.FreeTypeFont] = {}
+
+PX_SMALL = 8    # ~7px caps, ~6px advance — fits ~10 chars across 64px
+PX_BIG = 16     # ~14px caps — hero numbers (temp, clock)
+PX_HUGE = 24
+
+
+def px_font(size: int = PX_SMALL) -> ImageFont.FreeTypeFont:
+    f = _px_cache.get(size)
+    if f is None:
+        f = ImageFont.truetype(_FONT_PATH, size)
+        _px_cache[size] = f
+    return f
+
+
+def _cap_top(size: int) -> int:
+    """Y offset of the cap top within the font's em box (so callers can align by
+    the visible cap, not the invisible ascent line)."""
+    return px_font(size).getbbox("A")[1]
+
+
+def px_cap_height(size: int = PX_SMALL) -> int:
+    bb = px_font(size).getbbox("A")
+    return bb[3] - bb[1]
+
+
+def px_text_width(text: str, size: int = PX_SMALL) -> int:
+    return int(round(px_font(size).getlength(text)))
+
+
+def draw_px(
+    draw: ImageDraw.ImageDraw,
+    xy: tuple[int, int],
+    text: str,
+    fill: tuple[int, int, int] = WHITE,
+    size: int = PX_SMALL,
+) -> None:
+    """Crisp (no-AA) kenpixel text. `xy` is the top-left of the visible cap."""
+    x, y = xy
+    draw.fontmode = "1"  # disable anti-aliasing — crisp pixels, no flicker
+    draw.text((x, y - _cap_top(size)), text, font=px_font(size), fill=fill)
+
+
+def draw_px_centered(
+    draw: ImageDraw.ImageDraw,
+    y: int,
+    text: str,
+    fill: tuple[int, int, int] = WHITE,
+    size: int = PX_SMALL,
+    x0: int = 0,
+    x1: int = WIDTH,
+) -> None:
+    w = px_text_width(text, size)
+    draw_px(draw, (x0 + ((x1 - x0) - w) // 2, y), text, fill=fill, size=size)
 
 
 def text_width(draw: ImageDraw.ImageDraw, text: str, font=None) -> int:
