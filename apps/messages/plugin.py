@@ -35,7 +35,7 @@ class MessagesApp(LedApp):
     name = "Message"
 
     def default_config(self) -> dict:
-        return {"text": "PI LED READY", "color": "white", "viz": "solid"}
+        return {"text": "Sunny Bunny", "color": "white", "viz": "solid"}
 
     async def render(self, ctx: RenderContext) -> Image.Image:
         cfg = ctx.config or {}
