@@ -31,6 +31,17 @@ LIVE_TTL = float(os.environ.get("LED_WC_LIVE_TTL", "20"))
 SOON_TTL = float(os.environ.get("LED_WC_SOON_TTL", "60"))
 IDLE_TTL = float(os.environ.get("LED_WC_IDLE_TTL", "300"))
 
+# Knockout rounds in bracket order (ESPN season.slug). Used to build the bracket
+# view; group-stage matches are excluded.
+KNOCKOUT_ORDER = [
+    "round-of-32",
+    "round-of-16",
+    "quarterfinals",
+    "semifinals",
+    "3rd-place-match",
+    "final",
+]
+
 
 @dataclass
 class Goal:
@@ -82,6 +93,7 @@ class Match:
     city: str = ""       # e.g. "Philadelphia, Pennsylvania"
     country: str = ""    # e.g. "USA"
     state: str = ""      # ESPN status.type.state: "pre" | "in" | "post" (most reliable)
+    stage: str = ""      # ESPN season.slug: "group-stage" | "round-of-32" | ... | "final"
 
     @property
     def is_live(self) -> bool:
@@ -159,6 +171,7 @@ def _parse_event(event: dict) -> Match | None:
         date_str = event.get("date") or comp.get("date")
         kickoff = datetime.fromisoformat(date_str.replace("Z", "+00:00")) if date_str else datetime.now(timezone.utc)
         status = _safe(event, "status", "type", default={}) or {}
+        season = event.get("season") or {}
 
         home = to_team(home_raw, True)
         away = to_team(away_raw, False)
@@ -204,6 +217,7 @@ def _parse_event(event: dict) -> Match | None:
             city=venue_city,
             country=venue_country,
             state=str(status.get("state", "") or ""),
+            stage=str(season.get("slug", "") or ""),
         )
     except Exception:
         return None
@@ -256,6 +270,22 @@ def _parse_summary_goals(data: dict, home_id: str, away_id: str) -> tuple[list[G
     home.sort(key=lambda g: g.minute_sort_key)
     away.sort(key=lambda g: g.minute_sort_key)
     return home, away
+
+
+def group_knockout(matches: list[Match]) -> list[tuple[str, list[Match]]]:
+    """Knockout matches grouped by round in bracket order: [(slug, [matches]), ...].
+    Group-stage matches are excluded; each round's matches are sorted by kickoff."""
+    by: dict[str, list[Match]] = {}
+    for m in matches:
+        if m.stage in KNOCKOUT_ORDER:
+            by.setdefault(m.stage, []).append(m)
+    out: list[tuple[str, list[Match]]] = []
+    for slug in KNOCKOUT_ORDER:
+        ms = by.get(slug)
+        if ms:
+            ms.sort(key=lambda x: x.kickoff_utc)
+            out.append((slug, ms))
+    return out
 
 
 class ESPNClient:
@@ -317,8 +347,10 @@ class ESPNClient:
 
         now_utc = datetime.now(timezone.utc)
         start = (now_utc - timedelta(days=3)).strftime("%Y%m%d")
-        end = (now_utc + timedelta(days=14)).strftime("%Y%m%d")
-        url = f"{ESPN_BASE}?dates={start}-{end}&limit=300"
+        # Wide enough to capture the whole knockout bracket (final is ~3 weeks out)
+        # so the bracket view can show every round, not just the next fortnight.
+        end = (now_utc + timedelta(days=28)).strftime("%Y%m%d")
+        url = f"{ESPN_BASE}?dates={start}-{end}&limit=500"
         try:
             r = await self._client.get(url)
             r.raise_for_status()

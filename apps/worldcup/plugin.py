@@ -9,7 +9,8 @@ from PIL import Image
 
 from pi_led_core.plugin import LedApp, RenderContext, ViewSpec
 
-from .espn import ESPNClient
+from .espn import ESPNClient, group_knockout
+from .pages import bracket as bracket_page
 from .pages import matches as matches_page
 from .pages import standings as standings_page
 from .standings import StandingsClient
@@ -20,6 +21,8 @@ GOAL_FLASH_SECONDS = float(os.environ.get("LED_GOAL_FLASH", "3.0"))
 # If this view hasn't rendered for longer than this (the carousel was showing
 # something else), restart pagination on return so it always begins at match 1.
 AWAY_GAP_SECONDS = float(os.environ.get("LED_WC_AWAY_GAP", "2.0"))
+# Matchups shown per bracket page (a round with more than this paginates).
+BRACKET_PER_PAGE = int(os.environ.get("LED_BRACKET_PER_PAGE", "5"))
 
 
 class WorldCupApp(LedApp):
@@ -39,6 +42,8 @@ class WorldCupApp(LedApp):
         self._last_rotate = 0.0
         self._grp_idx = 0          # standings group rotation, persists across visits
         self._grp_rotate = 0.0
+        self._brk_idx = 0          # bracket page rotation, persists across visits
+        self._brk_rotate = 0.0
         self._last_view: str | None = None
         self._last_render_tick = 0.0
         self._score_cache: dict[str, tuple[str, str]] = {}
@@ -48,6 +53,7 @@ class WorldCupApp(LedApp):
         return [
             ViewSpec(id="today", label="Matches Today"),
             ViewSpec(id="next", label="Next Scheduled"),
+            ViewSpec(id="bracket", label="Knockout Bracket"),
             ViewSpec(id="standings", label="WC Standings"),
         ]
 
@@ -130,6 +136,35 @@ class WorldCupApp(LedApp):
         idx = self._grp_idx % len(groups)
         return standings_page.render(groups[idx], idx, len(groups), tick=tick)
 
+    def _bracket_pages(self, snapshot) -> list[tuple[str, list, int, int]]:
+        """Flatten the knockout bracket into display pages. Each page is
+        (round_slug, matches_on_page, round_index, round_count); rounds with more
+        than BRACKET_PER_PAGE matchups span several pages."""
+        rounds = group_knockout(snapshot.matches)
+        pages: list[tuple[str, list, int, int]] = []
+        for ri, (slug, matches) in enumerate(rounds):
+            for i in range(0, len(matches), BRACKET_PER_PAGE):
+                pages.append((slug, matches[i:i + BRACKET_PER_PAGE], ri, len(rounds)))
+        return pages
+
+    async def _render_bracket(self, tick: float) -> Image.Image:
+        snapshot = await self.espn.get()
+        pages = self._bracket_pages(snapshot)
+        if not pages:
+            return bracket_page.render_empty()
+        # Like standings: the bracket has more pages than fit one dwell, so it
+        # keeps its own rotation that persists across carousel visits.
+        if self._brk_rotate == 0.0:
+            self._brk_rotate = tick
+        elif len(pages) > 1 and tick - self._brk_rotate >= PAGE_HOLD_SECONDS:
+            self._brk_idx = (self._brk_idx + 1) % len(pages)
+            self._brk_rotate = tick
+        idx = self._brk_idx % len(pages)
+        slug, matches, round_idx, round_count = pages[idx]
+        return bracket_page.render(
+            slug, matches, round_idx, round_count, idx, len(pages), self.tz, tick=tick
+        )
+
     def view_cycle_seconds(self, view_id: str, config: dict) -> float | None:
         """Tell the carousel how long to dwell on the match views: PAGE_HOLD per
         match, so every match is shown once before the carousel moves on. Uses the
@@ -155,6 +190,8 @@ class WorldCupApp(LedApp):
             self._last_view = ctx.view
         if ctx.view == "standings":
             return await self._render_standings(ctx.tick)
+        if ctx.view == "bracket":
+            return await self._render_bracket(ctx.tick)
         # "today" / "next" (and any unknown view defaults to today)
         mode = "next" if ctx.view == "next" else "today"
         return await self._render_matches(mode, ctx.tick)
