@@ -204,7 +204,7 @@ class WorldCupApp(LedApp):
             self._brk_rotate = tick
         return self._brk_idx % count
 
-    async def _render_bracket(self, tick: float, config: dict) -> Image.Image:
+    async def _render_bracket(self, tick: float, config: dict, reentered: bool = False) -> Image.Image:
         snapshot = await self.espn.get()
         rounds = self._enabled_rounds(snapshot, config)
         if not rounds:
@@ -212,27 +212,40 @@ class WorldCupApp(LedApp):
         # Two+ enabled rounds -> converging tree; a single round -> per-round list.
         cells = self._bracket_cells(rounds) if len(rounds) >= 2 else []
         if cells:
+            # Tree: persistent rotation across visits (too many cells for one dwell).
             idx = self._advance_brk(len(cells), tick, hold=BRACKET_HOLD)
             slug, focus, fa, fb, ri, rc = cells[idx]
             return bracket_tree.render(slug, focus, fa, fb, ri, rc, idx, len(cells), self.tz, tick=tick)
         pages = self._bracket_list_pages(rounds)
         if not pages:
             return bracket_page.render_empty()
+        # List: the carousel dwell is sized (view_cycle_seconds) to show every page,
+        # so restart at page 1 on each visit and step through all of them in order.
+        if reentered:
+            self._brk_idx = 0
+            self._brk_rotate = tick
         idx = self._advance_brk(len(pages), tick, hold=BRACKET_HOLD)
         slug, matches, ri, rc = pages[idx]
         return bracket_page.render(slug, matches, ri, rc, idx, len(pages), self.tz, tick=tick)
 
     def view_cycle_seconds(self, view_id: str, config: dict) -> float | None:
-        """Tell the carousel how long to dwell on the match views: PAGE_HOLD per
-        match, so every match is shown once before the carousel moves on. Uses the
-        cached snapshot (no network); None means the carousel default dwell.
-        Standings is left at the default — it rotates its many groups across
-        visits (see _render_standings) rather than in one long block."""
+        """Tell the carousel how long to dwell so a view shows all its content once
+        before moving on: PAGE_HOLD per match (today/next), BRACKET_HOLD per page
+        for a single-round bracket (so every R32 tie is shown). Uses the cached
+        snapshot (no network); None = the carousel default dwell. Standings and the
+        multi-round bracket tree are left at the default — they rotate their many
+        pages across visits (see _render_standings / _render_bracket)."""
         if self.espn is None or view_id == "standings":
             return None
         snap = self.espn.cached()
         if snap is None:
             return None
+        if view_id == "bracket":
+            rounds = self._enabled_rounds(snap, config)
+            if len(rounds) == 1:  # list mode: dwell long enough to show every page
+                n = len(self._bracket_list_pages(rounds))
+                return n * BRACKET_HOLD if n > 0 else None
+            return None  # tree mode: rotates across visits
         mode = "next" if view_id == "next" else "today"
         n = len(matches_page.pick_day_matches(snap, mode, self.tz))
         return n * PAGE_HOLD_SECONDS if n > 0 else None
@@ -242,13 +255,14 @@ class WorldCupApp(LedApp):
         self._last_render_tick = ctx.tick
         # Reset pagination on a view change OR when returning after being off-
         # screen (the carousel was elsewhere), so a view always starts at match 1.
-        if ctx.view != self._last_view or gap > AWAY_GAP_SECONDS:
+        reentered = ctx.view != self._last_view or gap > AWAY_GAP_SECONDS
+        if reentered:
             self._reset_rotation(ctx.tick)
             self._last_view = ctx.view
         if ctx.view == "standings":
             return await self._render_standings(ctx.tick)
         if ctx.view == "bracket":
-            return await self._render_bracket(ctx.tick, ctx.config or {})
+            return await self._render_bracket(ctx.tick, ctx.config or {}, reentered)
         # "today" / "next" (and any unknown view defaults to today)
         mode = "next" if ctx.view == "next" else "today"
         return await self._render_matches(mode, ctx.tick)
