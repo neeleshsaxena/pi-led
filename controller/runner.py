@@ -35,6 +35,7 @@ class Controller:
         self._in_carousel = False
         self._carousel_idx = 0
         self._carousel_anchor = 0.0
+        self._carousel_dwell = 0.0
 
     def _start_transition(self) -> None:
         if self._last_img is not None and TRANSITION_SECONDS > 0:
@@ -57,23 +58,41 @@ class Controller:
         app, _ = self.registry.resolve(key)
         return app is not None and app.id != CAROUSEL_ID
 
+    def _dwell_for(self, key: str, default: float) -> float:
+        """How long to hold this view. An app can request a longer dwell via
+        view_cycle_seconds (e.g. worldcup -> PAGE_HOLD per match so all matches
+        get shown); otherwise we use the carousel's default dwell."""
+        app, view_id = self.registry.resolve(key)
+        if app is None:
+            return default
+        try:
+            secs = app.view_cycle_seconds(view_id, self.state.config_for(app.id))
+        except Exception:  # noqa: BLE001 - a bad hint must not break rotation
+            secs = None
+        return max(2.0, float(secs)) if secs and secs > 0 else default
+
     def _carousel_expand(self, app, now: float) -> str:
         """The active view is the carousel: return the underlying view key to show
-        right now, advancing through the configured list on the dwell timer."""
+        right now, advancing through the configured list. Each item is held for
+        its own dwell (per-view via _dwell_for), so e.g. worldcup lingers long
+        enough to page through every match before the carousel moves on."""
         cfg = self.state.config_for(app.id)
         views = [k for k in (cfg.get("views") or []) if self._rotatable(k)]
         if not views:
             return DEFAULT_ACTIVE  # nothing valid configured: degrade gracefully
-        dwell = max(2.0, float(cfg.get("dwell", 10.0)))
+        default_dwell = max(2.0, float(cfg.get("dwell", 10.0)))
         if not self._in_carousel:  # fresh entry into carousel mode: start clean
             self._in_carousel = True
             self._carousel_idx = 0
             self._carousel_anchor = now
-        elapsed = now - self._carousel_anchor
-        if elapsed >= dwell:
-            steps = int(elapsed // dwell)
-            self._carousel_idx += steps
-            self._carousel_anchor += steps * dwell
+            self._carousel_dwell = self._dwell_for(views[0], default_dwell)
+        # Advance one item at a time (dwell is per-item, so we can't divide).
+        guard = 0
+        while now - self._carousel_anchor >= self._carousel_dwell and guard < 1000:
+            self._carousel_anchor += self._carousel_dwell
+            self._carousel_idx += 1
+            self._carousel_dwell = self._dwell_for(views[self._carousel_idx % len(views)], default_dwell)
+            guard += 1
         return views[self._carousel_idx % len(views)]
 
     async def _render_active(self) -> Image.Image:

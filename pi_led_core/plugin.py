@@ -66,6 +66,13 @@ class LedApp:
         """Admin-selectable views this plugin offers. Default: a single view."""
         return [ViewSpec(id="main", label=self.name or self.id)]
 
+    def view_cycle_seconds(self, view_id: str, config: dict) -> "float | None":
+        """Optional: seconds this view needs to display its full content once, for
+        views that paginate internally (e.g. worldcup cycling through a day's
+        matches). The carousel uses this as the per-view dwell instead of its
+        default. Return None to use the carousel's default dwell."""
+        return None
+
     async def render(self, ctx: RenderContext) -> Image.Image:
         """Return one RGB frame of size (ctx.width, ctx.height)."""
         raise NotImplementedError
