@@ -11,6 +11,7 @@ from pi_led_core.plugin import LedApp, RenderContext, ViewSpec
 
 from .espn import ESPNClient, group_knockout
 from .pages import bracket as bracket_page
+from .pages import bracket_tree
 from .pages import matches as matches_page
 from .pages import standings as standings_page
 from .standings import StandingsClient
@@ -23,6 +24,16 @@ GOAL_FLASH_SECONDS = float(os.environ.get("LED_GOAL_FLASH", "3.0"))
 AWAY_GAP_SECONDS = float(os.environ.get("LED_WC_AWAY_GAP", "2.0"))
 # Matchups shown per bracket page (a round with more than this paginates).
 BRACKET_PER_PAGE = int(os.environ.get("LED_BRACKET_PER_PAGE", "5"))
+# Knockout rounds the bracket view shows, smallest set first. Defaults to just
+# the round of 32 — enable later rounds (in the worldcup config's bracket_rounds)
+# once R32 wraps. With one round it renders the per-round list; with two+ it
+# renders the converging tree.
+DEFAULT_BRACKET_ROUNDS = [r.strip() for r in os.environ.get("LED_BRACKET_ROUNDS", "round-of-32").split(",") if r.strip()]
+
+
+def _is_real(team) -> bool:
+    """A determined team (real 3-letter FIFA code) vs a TBD placeholder."""
+    return (team.short or "").strip().isalpha()
 
 
 class WorldCupApp(LedApp):
@@ -56,6 +67,11 @@ class WorldCupApp(LedApp):
             ViewSpec(id="bracket", label="Knockout Bracket"),
             ViewSpec(id="standings", label="WC Standings"),
         ]
+
+    def default_config(self) -> dict:
+        # Which knockout rounds the bracket view shows. Start with R32 only;
+        # add "round-of-16", "quarterfinals", "semifinals", "final" once R32 wraps.
+        return {"bracket_rounds": list(DEFAULT_BRACKET_ROUNDS)}
 
     async def start(self) -> None:
         # Lazily created here so the web process (which never calls start())
@@ -136,34 +152,70 @@ class WorldCupApp(LedApp):
         idx = self._grp_idx % len(groups)
         return standings_page.render(groups[idx], idx, len(groups), tick=tick)
 
-    def _bracket_pages(self, snapshot) -> list[tuple[str, list, int, int]]:
-        """Flatten the knockout bracket into display pages. Each page is
-        (round_slug, matches_on_page, round_index, round_count); rounds with more
-        than BRACKET_PER_PAGE matchups span several pages."""
-        rounds = group_knockout(snapshot.matches)
-        pages: list[tuple[str, list, int, int]] = []
+    def _enabled_rounds(self, snapshot, config) -> list[tuple[str, list]]:
+        """Knockout rounds (slug, matches) the bracket should show, per the
+        bracket_rounds config — in bracket order, only those that exist."""
+        wanted = config.get("bracket_rounds") or DEFAULT_BRACKET_ROUNDS
+        wanted = set(wanted)
+        return [(slug, ms) for slug, ms in group_knockout(snapshot.matches) if slug in wanted]
+
+    def _feeder_for(self, team, prev_matches):
+        """The previous-round match this (determined) team won — its feeder in the
+        tree. None if the team is TBD or no completed feeder is found."""
+        if not _is_real(team):
+            return None
+        tid = team.team_id
+        for pm in prev_matches:
+            if (pm.home.winner and pm.home.team_id == tid) or (pm.away.winner and pm.away.team_id == tid):
+                return pm
+        return None
+
+    def _bracket_cells(self, rounds) -> list[tuple]:
+        """Tree cells: each next-round tie + its two feeder matches. Only emitted
+        for rounds that have a previous enabled round, and skipping all-TBD ties."""
+        cells: list[tuple] = []
+        for i in range(1, len(rounds)):
+            slug, matches = rounds[i]
+            prev = rounds[i - 1][1]
+            for m in matches:
+                fa, fb = self._feeder_for(m.home, prev), self._feeder_for(m.away, prev)
+                if _is_real(m.home) or _is_real(m.away) or fa or fb:
+                    cells.append((slug, m, fa, fb, i, len(rounds)))
+        return cells
+
+    def _bracket_list_pages(self, rounds) -> list[tuple]:
+        pages: list[tuple] = []
         for ri, (slug, matches) in enumerate(rounds):
             for i in range(0, len(matches), BRACKET_PER_PAGE):
                 pages.append((slug, matches[i:i + BRACKET_PER_PAGE], ri, len(rounds)))
         return pages
 
-    async def _render_bracket(self, tick: float) -> Image.Image:
-        snapshot = await self.espn.get()
-        pages = self._bracket_pages(snapshot)
-        if not pages:
-            return bracket_page.render_empty()
-        # Like standings: the bracket has more pages than fit one dwell, so it
-        # keeps its own rotation that persists across carousel visits.
+    def _advance_brk(self, count: int, tick: float) -> int:
+        """Persistent rotation index across carousel visits (like standings)."""
         if self._brk_rotate == 0.0:
             self._brk_rotate = tick
-        elif len(pages) > 1 and tick - self._brk_rotate >= PAGE_HOLD_SECONDS:
-            self._brk_idx = (self._brk_idx + 1) % len(pages)
+        elif count > 1 and tick - self._brk_rotate >= PAGE_HOLD_SECONDS:
+            self._brk_idx = (self._brk_idx + 1) % count
             self._brk_rotate = tick
-        idx = self._brk_idx % len(pages)
-        slug, matches, round_idx, round_count = pages[idx]
-        return bracket_page.render(
-            slug, matches, round_idx, round_count, idx, len(pages), self.tz, tick=tick
-        )
+        return self._brk_idx % count
+
+    async def _render_bracket(self, tick: float, config: dict) -> Image.Image:
+        snapshot = await self.espn.get()
+        rounds = self._enabled_rounds(snapshot, config)
+        if not rounds:
+            return bracket_page.render_empty()
+        # Two+ enabled rounds -> converging tree; a single round -> per-round list.
+        cells = self._bracket_cells(rounds) if len(rounds) >= 2 else []
+        if cells:
+            idx = self._advance_brk(len(cells), tick)
+            slug, focus, fa, fb, ri, rc = cells[idx]
+            return bracket_tree.render(slug, focus, fa, fb, ri, rc, idx, len(cells), self.tz, tick=tick)
+        pages = self._bracket_list_pages(rounds)
+        if not pages:
+            return bracket_page.render_empty()
+        idx = self._advance_brk(len(pages), tick)
+        slug, matches, ri, rc = pages[idx]
+        return bracket_page.render(slug, matches, ri, rc, idx, len(pages), self.tz, tick=tick)
 
     def view_cycle_seconds(self, view_id: str, config: dict) -> float | None:
         """Tell the carousel how long to dwell on the match views: PAGE_HOLD per
@@ -191,7 +243,7 @@ class WorldCupApp(LedApp):
         if ctx.view == "standings":
             return await self._render_standings(ctx.tick)
         if ctx.view == "bracket":
-            return await self._render_bracket(ctx.tick)
+            return await self._render_bracket(ctx.tick, ctx.config or {})
         # "today" / "next" (and any unknown view defaults to today)
         mode = "next" if ctx.view == "next" else "today"
         return await self._render_matches(mode, ctx.tick)
