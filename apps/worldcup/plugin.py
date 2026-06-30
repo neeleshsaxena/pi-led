@@ -23,7 +23,10 @@ GOAL_FLASH_SECONDS = float(os.environ.get("LED_GOAL_FLASH", "3.0"))
 # something else), restart pagination on return so it always begins at match 1.
 AWAY_GAP_SECONDS = float(os.environ.get("LED_WC_AWAY_GAP", "2.0"))
 # Matchups shown per bracket page (a round with more than this paginates).
-BRACKET_PER_PAGE = int(os.environ.get("LED_BRACKET_PER_PAGE", "5"))
+BRACKET_PER_PAGE = int(os.environ.get("LED_BRACKET_PER_PAGE", "3"))
+# Per-page hold for the bracket view — intentionally longer than PAGE_HOLD_SECONDS
+# so viewers have time to read 3 matchups. Does NOT affect match/standings rotation.
+BRACKET_HOLD = float(os.environ.get("LED_BRACKET_HOLD", "7"))
 # Knockout rounds the bracket view shows, smallest set first. Defaults to just
 # the round of 32 — enable later rounds (in the worldcup config's bracket_rounds)
 # once R32 wraps. With one round it renders the per-round list; with two+ it
@@ -190,11 +193,13 @@ class WorldCupApp(LedApp):
                 pages.append((slug, matches[i:i + BRACKET_PER_PAGE], ri, len(rounds)))
         return pages
 
-    def _advance_brk(self, count: int, tick: float) -> int:
-        """Persistent rotation index across carousel visits (like standings)."""
+    def _advance_brk(self, count: int, tick: float, hold: float = PAGE_HOLD_SECONDS) -> int:
+        """Persistent rotation index across carousel visits (like standings).
+        `hold` lets callers use a view-specific dwell (e.g. BRACKET_HOLD)
+        without affecting the shared PAGE_HOLD_SECONDS used elsewhere."""
         if self._brk_rotate == 0.0:
             self._brk_rotate = tick
-        elif count > 1 and tick - self._brk_rotate >= PAGE_HOLD_SECONDS:
+        elif count > 1 and tick - self._brk_rotate >= hold:
             self._brk_idx = (self._brk_idx + 1) % count
             self._brk_rotate = tick
         return self._brk_idx % count
@@ -207,13 +212,13 @@ class WorldCupApp(LedApp):
         # Two+ enabled rounds -> converging tree; a single round -> per-round list.
         cells = self._bracket_cells(rounds) if len(rounds) >= 2 else []
         if cells:
-            idx = self._advance_brk(len(cells), tick)
+            idx = self._advance_brk(len(cells), tick, hold=BRACKET_HOLD)
             slug, focus, fa, fb, ri, rc = cells[idx]
             return bracket_tree.render(slug, focus, fa, fb, ri, rc, idx, len(cells), self.tz, tick=tick)
         pages = self._bracket_list_pages(rounds)
         if not pages:
             return bracket_page.render_empty()
-        idx = self._advance_brk(len(pages), tick)
+        idx = self._advance_brk(len(pages), tick, hold=BRACKET_HOLD)
         slug, matches, ri, rc = pages[idx]
         return bracket_page.render(slug, matches, ri, rc, idx, len(pages), self.tz, tick=tick)
 
