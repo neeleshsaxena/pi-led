@@ -33,6 +33,7 @@ DEFAULT_VIEWS = [
     "weather:current",
     "weather:forecast",
     "clock:digital",
+    "messages:main",
 ]
 
 # Seconds each view is held before advancing. Tunable per-deploy via env, and
