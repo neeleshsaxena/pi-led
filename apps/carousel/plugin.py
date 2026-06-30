@@ -34,6 +34,7 @@ DEFAULT_VIEWS = [
     "weather:forecast",
     "clock:digital",
     "messages:main",
+    "ambient:starfield",
 ]
 
 # Seconds each view is held before advancing. Tunable per-deploy via env, and
