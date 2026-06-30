@@ -28,6 +28,7 @@ from pi_led_core.plugin import LedApp, RenderContext
 # weather:forecast, ambient:plasma, messages:main).
 DEFAULT_VIEWS = [
     "worldcup:today",
+    "worldcup:next",
     "weather:current",
     "weather:forecast",
     "clock:digital",

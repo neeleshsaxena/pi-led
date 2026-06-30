@@ -7,6 +7,7 @@ pages actually use: match cards + latest-goal line. The web-app-only bits
 """
 from __future__ import annotations
 
+import os
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -18,6 +19,14 @@ ESPN_BASE = "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/sco
 
 LIVE_STATUSES = {"STATUS_IN_PROGRESS", "STATUS_HALFTIME", "STATUS_FIRST_HALF", "STATUS_SECOND_HALF"}
 FINAL_STATUSES = {"STATUS_FULL_TIME", "STATUS_FINAL"}
+
+# Refresh cadence. We poll ESPN this often (TTL on the cached snapshot):
+#   live  — any match in play (incl. knockout ET/penalties): every LIVE_TTL s
+#   soon  — a kickoff within the hour: every SOON_TTL s
+#   idle  — otherwise: every IDLE_TTL s
+LIVE_TTL = float(os.environ.get("LED_WC_LIVE_TTL", "20"))
+SOON_TTL = float(os.environ.get("LED_WC_SOON_TTL", "60"))
+IDLE_TTL = float(os.environ.get("LED_WC_IDLE_TTL", "300"))
 
 
 @dataclass
@@ -67,13 +76,20 @@ class Match:
     venue: str = ""      # stadium full name, e.g. "Lincoln Financial Field"
     city: str = ""       # e.g. "Philadelphia, Pennsylvania"
     country: str = ""    # e.g. "USA"
+    state: str = ""      # ESPN status.type.state: "pre" | "in" | "post" (most reliable)
 
     @property
     def is_live(self) -> bool:
+        # Prefer ESPN's coarse state ("in" covers every in-play status, including
+        # knockout extra time / penalties that the name-based set below misses).
+        if self.state:
+            return self.state == "in"
         return self.status_raw in LIVE_STATUSES or (self.status_raw.startswith("STATUS_") and "HALF" in self.status_raw)
 
     @property
     def is_final(self) -> bool:
+        if self.state:
+            return self.state == "post"
         return self.status_raw in FINAL_STATUSES
 
     @property
@@ -168,6 +184,7 @@ def _parse_event(event: dict) -> Match | None:
             venue=venue_name,
             city=venue_city,
             country=venue_country,
+            state=str(status.get("state", "") or ""),
         )
     except Exception:
         return None
@@ -183,16 +200,21 @@ class ESPNClient:
     async def close(self) -> None:
         await self._client.aclose()
 
+    def cached(self) -> Snapshot | None:
+        """Last fetched snapshot, no network call. Used to size the carousel
+        dwell from the current match count. May be stale or None (cold start)."""
+        return self._cache
+
     def _ttl_for(self, snapshot: Snapshot | None) -> float:
         if not snapshot:
-            return 30.0
+            return LIVE_TTL
         if any(m.is_live for m in snapshot.matches):
-            return 30.0
+            return LIVE_TTL
         now = datetime.now(timezone.utc)
         soonest = min((m.kickoff_utc for m in snapshot.matches if m.kickoff_utc > now), default=None)
         if soonest and (soonest - now) < timedelta(hours=1):
-            return 60.0
-        return 300.0
+            return SOON_TTL
+        return IDLE_TTL
 
     async def get(self, force: bool = False) -> Snapshot:
         now_s = time.monotonic()

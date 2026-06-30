@@ -17,10 +17,9 @@ from .standings import StandingsClient
 LOCAL_TZ = datetime.now().astimezone().tzinfo or ZoneInfo("UTC")
 PAGE_HOLD_SECONDS = float(os.environ.get("LED_PAGE_HOLD", "5.0"))
 GOAL_FLASH_SECONDS = float(os.environ.get("LED_GOAL_FLASH", "3.0"))
-# How many upcoming fixtures "WC Next" rotates through (across days). The old
-# behaviour showed only the single next calendar day, which is a lone static
-# card whenever that day has just one match.
-NEXT_COUNT = int(os.environ.get("LED_NEXT_COUNT", "8"))
+# If this view hasn't rendered for longer than this (the carousel was showing
+# something else), restart pagination on return so it always begins at match 1.
+AWAY_GAP_SECONDS = float(os.environ.get("LED_WC_AWAY_GAP", "2.0"))
 
 
 class WorldCupApp(LedApp):
@@ -39,6 +38,7 @@ class WorldCupApp(LedApp):
         self._page_idx = 0
         self._last_rotate = 0.0
         self._last_view: str | None = None
+        self._last_render_tick = 0.0
         self._score_cache: dict[str, tuple[str, str]] = {}
         self._goal_flash_until: dict[str, float] = {}
 
@@ -81,24 +81,11 @@ class WorldCupApp(LedApp):
             if prev is not None and prev != cur and m.is_live:
                 self._goal_flash_until[m.id] = tick + GOAL_FLASH_SECONDS
 
-    def _upcoming_matches(self, snapshot):
-        """The next N fixtures by kickoff, on days strictly after today (local) —
-        so WC Next rotates through what's coming up instead of just the lone
-        next calendar day (which is one static card when that day has 1 match)."""
-        today_key = datetime.now(self.tz).strftime("%Y-%m-%d")
-        upcoming = [
-            m for m in snapshot.matches
-            if m.kickoff_utc.astimezone(self.tz).strftime("%Y-%m-%d") > today_key
-        ]
-        upcoming.sort(key=lambda m: m.kickoff_utc)
-        return upcoming[:NEXT_COUNT]
-
     async def _render_matches(self, mode: str, tick: float) -> Image.Image:
         snapshot = await self.espn.get()
-        if mode == "next":
-            day_matches = self._upcoming_matches(snapshot)
-        else:
-            day_matches = matches_page.pick_day_matches(snapshot, "today", self.tz)
+        # "today" -> today's matches; "next" -> the next match-day's matches
+        # (i.e. up to one day out, in kickoff order).
+        day_matches = matches_page.pick_day_matches(snapshot, mode, self.tz)
         if not day_matches:
             return matches_page.render_empty("no fixtures")
         self._update_goal_flashes(day_matches, tick)
@@ -124,8 +111,26 @@ class WorldCupApp(LedApp):
         idx = self._page_idx % len(groups)
         return standings_page.render(groups[idx], idx, len(groups), tick=tick)
 
+    def view_cycle_seconds(self, view_id: str, config: dict) -> float | None:
+        """Tell the carousel how long to dwell here: PAGE_HOLD per match, so every
+        match in the view is shown once before the carousel moves on. Uses the
+        cached snapshot (no network); returns None (carousel default) until the
+        cache warms or when there are no fixtures."""
+        if self.espn is None or view_id == "standings":
+            return None
+        snap = self.espn.cached()
+        if snap is None:
+            return None
+        mode = "next" if view_id == "next" else "today"
+        n = len(matches_page.pick_day_matches(snap, mode, self.tz))
+        return n * PAGE_HOLD_SECONDS if n > 0 else None
+
     async def render(self, ctx: RenderContext) -> Image.Image:
-        if ctx.view != self._last_view:
+        gap = ctx.tick - self._last_render_tick
+        self._last_render_tick = ctx.tick
+        # Reset pagination on a view change OR when returning after being off-
+        # screen (the carousel was elsewhere), so a view always starts at match 1.
+        if ctx.view != self._last_view or gap > AWAY_GAP_SECONDS:
             self._reset_rotation(ctx.tick)
             self._last_view = ctx.view
         if ctx.view == "standings":
