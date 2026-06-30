@@ -16,6 +16,9 @@ from typing import Any
 import httpx
 
 ESPN_BASE = "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard"
+# Per-event summary — the scoreboard feed's goal details are incomplete, so the
+# full scorer list comes from here (keyEvents with scoringPlay=true).
+ESPN_SUMMARY = "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/summary"
 
 LIVE_STATUSES = {"STATUS_IN_PROGRESS", "STATUS_HALFTIME", "STATUS_FIRST_HALF", "STATUS_SECOND_HALF"}
 FINAL_STATUSES = {"STATUS_FULL_TIME", "STATUS_FINAL"}
@@ -62,6 +65,8 @@ class Team:
     is_home: bool
     team_id: str = ""
     goals: list[Goal] = field(default_factory=list)
+    winner: bool = False   # ESPN competitor.winner — match winner (incl. on penalties)
+    pen_score: str = ""    # penalty-shootout goals as a string, "" if no shootout
 
 
 @dataclass
@@ -91,6 +96,11 @@ class Match:
         if self.state:
             return self.state == "post"
         return self.status_raw in FINAL_STATUSES
+
+    @property
+    def is_shootout(self) -> bool:
+        """Decided by a penalty shootout (regulation/ET was level)."""
+        return bool(self.home.pen_score or self.away.pen_score)
 
     @property
     def latest_goal(self) -> Goal | None:
@@ -129,12 +139,21 @@ def _parse_event(event: dict) -> Match | None:
 
         def to_team(raw: dict, is_home: bool) -> Team:
             team = raw.get("team", {}) or {}
+            ss = raw.get("shootoutScore")
+            pen = ""
+            if ss not in (None, ""):
+                try:
+                    pen = str(int(float(ss)))
+                except (TypeError, ValueError):
+                    pen = ""
             return Team(
                 name=team.get("displayName") or team.get("name") or "—",
                 short=team.get("abbreviation") or team.get("shortDisplayName") or "—",
                 score=str(raw.get("score", "") or ""),
                 is_home=is_home,
                 team_id=str(team.get("id", "")),
+                winner=bool(raw.get("winner")),
+                pen_score=pen,
             )
 
         date_str = event.get("date") or comp.get("date")
@@ -190,11 +209,61 @@ def _parse_event(event: dict) -> Match | None:
         return None
 
 
+def _scorer_from_text(text: str) -> str:
+    """Pull the scorer name out of a keyEvent description (athletesInvolved is
+    usually empty). "Goal! Germany 0, Paraguay 1. Julio Enciso (Paraguay) header
+    ..." -> "Julio Enciso". Returns "" if it doesn't look like a name."""
+    if not text:
+        return ""
+    seg = text.split(". ", 1)
+    seg = seg[1] if len(seg) > 1 else text
+    name = seg.split(" (")[0].strip()
+    if not name or len(name) > 24 or len(name.split()) > 4:
+        return ""
+    return name
+
+
+def _parse_summary_goals(data: dict, home_id: str, away_id: str) -> tuple[list[Goal], list[Goal]]:
+    """Full home/away scorer lists from a summary payload's keyEvents (the
+    scoreboard feed's goal details are partial). Shootout pens are excluded —
+    they're rendered from the team pen_score, not as scorers."""
+    home: list[Goal] = []
+    away: list[Goal] = []
+    for p in _safe(data, "keyEvents", default=[]) or []:
+        if not p.get("scoringPlay") or p.get("shootout"):
+            continue
+        typ = (_safe(p, "type", "text") or "").lower()
+        team_id = str(_safe(p, "team", "id") or "")
+        minute = _safe(p, "clock", "displayValue") or ""
+        athletes = p.get("athletesInvolved") or []
+        player = ""
+        if athletes:
+            player = athletes[0].get("displayName") or athletes[0].get("shortName") or ""
+        if not player:
+            player = _scorer_from_text(_safe(p, "text") or "")
+        goal = Goal(
+            minute=minute,
+            player=player or "—",
+            is_penalty="penalty" in typ,
+            is_own_goal="own" in typ,
+        )
+        if team_id == home_id:
+            goal.side = "home"
+            home.append(goal)
+        elif team_id == away_id:
+            goal.side = "away"
+            away.append(goal)
+    home.sort(key=lambda g: g.minute_sort_key)
+    away.sort(key=lambda g: g.minute_sort_key)
+    return home, away
+
+
 class ESPNClient:
     def __init__(self, timeout: float = 8.0):
         self._timeout = timeout
         self._cache: Snapshot | None = None
         self._cache_ts: float = 0.0
+        self._summary_cache: dict[str, tuple[float, tuple[list[Goal], list[Goal]]]] = {}
         self._client = httpx.AsyncClient(timeout=timeout, headers={"User-Agent": "pi-led/0.1"})
 
     async def close(self) -> None:
@@ -204,6 +273,31 @@ class ESPNClient:
         """Last fetched snapshot, no network call. Used to size the carousel
         dwell from the current match count. May be stale or None (cold start)."""
         return self._cache
+
+    async def goals_for(self, match: Match, ttl: float = 30.0) -> tuple[list[Goal], list[Goal]]:
+        """Complete (home, away) scorer lists for one match from its per-event
+        summary; cached per event id for `ttl` seconds. Falls back to the goals
+        already on the match (from the scoreboard) on any error or empty result."""
+        eid = match.id
+        scoreboard = (match.home.goals, match.away.goals)
+        if not eid:
+            return scoreboard
+        now_s = time.monotonic()
+        hit = self._summary_cache.get(eid)
+        if hit and (now_s - hit[0]) < ttl:
+            return hit[1]
+        try:
+            r = await self._client.get(f"{ESPN_SUMMARY}?event={eid}")
+            r.raise_for_status()
+            data = r.json()
+        except Exception:
+            return scoreboard
+        home, away = _parse_summary_goals(data, match.home.team_id, match.away.team_id)
+        if not home and not away and (scoreboard[0] or scoreboard[1]):
+            home, away = scoreboard  # don't regress to empty if scoreboard had some
+        result = (home, away)
+        self._summary_cache[eid] = (now_s, result)
+        return result
 
     def _ttl_for(self, snapshot: Snapshot | None) -> float:
         if not snapshot:

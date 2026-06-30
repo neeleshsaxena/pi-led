@@ -128,6 +128,11 @@ class StandingsClient:
     async def close(self) -> None:
         await self._client.aclose()
 
+    def cached(self) -> StandingsSnapshot | None:
+        """Last fetched standings without a network call (sizes the carousel
+        dwell from the group count). May be stale or None (cold start)."""
+        return self._cache
+
     async def get(self, force: bool = False) -> StandingsSnapshot:
         now_s = time.monotonic()
         if not force and self._cache and (now_s - self._cache_ts) < self._ttl:

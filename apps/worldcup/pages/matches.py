@@ -183,21 +183,33 @@ def render(
         ht = pulse_color(YELLOW, tick, period=2.0, min_factor=0.6)
         draw.ellipse([4, 38, 9, 43], fill=ht)
         draw_px(draw, (13, 38), "HT", fill=YELLOW, size=PX_SMALL)
-        _draw_scorer(draw, match)
+        _draw_scorers(img, match, home_primary, away_primary, tick)
     elif match.is_live:
         dot = pulse_color(RED, tick, period=1.6, min_factor=0.6)
         draw.ellipse([4, 38, 9, 43], fill=dot)
         status_txt = (match.short_detail or match.status_label or "LIVE")[:8].upper()
         draw_px(draw, (13, 38), status_txt, fill=WHITE, size=PX_SMALL)
-        _draw_scorer(draw, match)
+        _draw_scorers(img, match, home_primary, away_primary, tick)
     elif match.is_final:
-        ft_w = px_text_width("FT", PX_SMALL)
-        filled_rect(draw, 4, 37, 4 + ft_w + 3, 46, scale_color(GRAY, 0.6))
-        draw_px(draw, (6, 38), "FT", fill=WHITE, size=PX_SMALL)
-        tail = (match.short_detail or "").strip().upper()
-        if tail and tail not in {"FT", "FULL", "FULL TIME", "FINAL"}:
-            draw_px(draw, (4 + ft_w + 8, 38), tail[:6], fill=GRAY, size=PX_SMALL)
-        _draw_scorer(draw, match)
+        # Penalty shootout: badge "PK" + winner & pen score in their color, so a
+        # level "1-1" reads clearly as decided on penalties. Otherwise "FT".
+        is_so = match.is_shootout
+        badge = "PK" if is_so else "FT"
+        bdg_w = px_text_width(badge, PX_SMALL)
+        filled_rect(draw, 4, 37, 4 + bdg_w + 3, 46, scale_color(GRAY, 0.6))
+        draw_px(draw, (6, 38), badge, fill=WHITE, size=PX_SMALL)
+        if is_so:
+            win_home = match.home.winner
+            w_abbr = home if win_home else away
+            w_col = home_primary if win_home else away_primary
+            hi = match.home.pen_score if win_home else match.away.pen_score
+            lo = match.away.pen_score if win_home else match.home.pen_score
+            draw_px(draw, (4 + bdg_w + 8, 38), f"{w_abbr} {hi}-{lo}"[:9], fill=w_col, size=PX_SMALL)
+        else:
+            tail = (match.short_detail or "").strip().upper()
+            if tail and tail not in {"FT", "FULL", "FULL TIME", "FINAL"}:
+                draw_px(draw, (4 + bdg_w + 8, 38), tail[:6], fill=GRAY, size=PX_SMALL)
+        _draw_scorers(img, match, home_primary, away_primary, tick)
     else:
         _draw_location(img, match, tick, y=36)
         text, color = _kickoff_countdown(match, tz)
@@ -241,14 +253,41 @@ def lerp_white(c, t: float = 0.45):
     )
 
 
-def _draw_scorer(draw, match) -> None:
-    goal = match.latest_goal
-    if not goal:
+def _draw_scorers(img, match, home_c, away_c, tick, y: int = 50) -> None:
+    """Ticker of EVERY scorer (both teams), each tinted by the team that scored.
+    Centered & static if it all fits; otherwise it scrolls right→left, seamlessly
+    looping, hard-clipped to an inner band so it never paints over the edge bars."""
+    goals = sorted(list(match.home.goals) + list(match.away.goals),
+                   key=lambda g: g.minute_sort_key)
+    if not goals:
         return
-    line = _format_scorer_line(goal)
-    w = micro_text_width(line)
-    x = 4 if goal.side == "home" else WIDTH - 4 - w
-    draw_micro(draw, (x, 50), line, fill=scale_color(WHITE, 0.85))
+    segs = [(_format_scorer_line(g) + "   ", home_c if g.side == "home" else away_c) for g in goals]
+    widths = [micro_text_width(t) for t, _ in segs]
+    total = sum(widths)
+    bx0, bx1 = 3, WIDTH - 4
+    bw = bx1 - bx0 + 1
+    strip_h = 7
+
+    if total <= bw:  # fits: draw centered, no scroll
+        x = bx0 + (bw - total) // 2
+        d = ImageDraw.Draw(img)
+        for (t, c), w in zip(segs, widths):
+            draw_micro(d, (x, y), t, fill=c)
+            x += w
+        return
+
+    # build the full ticker once, then paste a scrolling, wrapping window of it
+    strip = Image.new("RGB", (total, strip_h), (0, 0, 0))
+    sd = ImageDraw.Draw(strip)
+    x = 0
+    for (t, c), w in zip(segs, widths):
+        draw_micro(sd, (x, 0), t, fill=c)
+        x += w
+    off = int((tick * 14) % total)
+    view = Image.new("RGB", (bw, strip_h), (0, 0, 0))
+    view.paste(strip, (-off, 0))
+    view.paste(strip, (total - off, 0))  # second copy fills the wrap seam
+    img.paste(view, (bx0, y))
 
 
 def _draw_goal_flash(draw, match, tick) -> None:
