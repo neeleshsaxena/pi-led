@@ -37,6 +37,8 @@ class WorldCupApp(LedApp):
         self.standings: StandingsClient | None = None
         self._page_idx = 0
         self._last_rotate = 0.0
+        self._grp_idx = 0          # standings group rotation, persists across visits
+        self._grp_rotate = 0.0
         self._last_view: str | None = None
         self._last_render_tick = 0.0
         self._score_cache: dict[str, tuple[str, str]] = {}
@@ -92,6 +94,16 @@ class WorldCupApp(LedApp):
         self._maybe_rotate(len(day_matches), tick)
         idx = self._page_idx % len(day_matches)
         current = day_matches[idx]
+        # Pull the COMPLETE scorer list for the visible match (the scoreboard
+        # feed's goal details are partial). Cached per event: 20s while live,
+        # ~1h once final (finished goals don't change).
+        if current.is_live or current.is_final:
+            try:
+                current.home.goals, current.away.goals = await self.espn.goals_for(
+                    current, ttl=(20.0 if current.is_live else 3600.0)
+                )
+            except Exception:  # noqa: BLE001 - scorer enrichment is best-effort
+                pass
         flash_remaining = max(0.0, self._goal_flash_until.get(current.id, 0.0) - tick)
         return matches_page.render(
             current,
@@ -107,15 +119,23 @@ class WorldCupApp(LedApp):
         groups = snapshot.groups
         if not groups:
             return standings_page.render_empty()
-        self._maybe_rotate(len(groups), tick)
-        idx = self._page_idx % len(groups)
+        # Standings keeps its OWN rotation that persists across carousel visits —
+        # there are far more groups than fit one dwell, so this cycles through all
+        # of them over successive visits instead of always restarting at group 1.
+        if self._grp_rotate == 0.0:
+            self._grp_rotate = tick
+        elif len(groups) > 1 and tick - self._grp_rotate >= PAGE_HOLD_SECONDS:
+            self._grp_idx = (self._grp_idx + 1) % len(groups)
+            self._grp_rotate = tick
+        idx = self._grp_idx % len(groups)
         return standings_page.render(groups[idx], idx, len(groups), tick=tick)
 
     def view_cycle_seconds(self, view_id: str, config: dict) -> float | None:
-        """Tell the carousel how long to dwell here: PAGE_HOLD per match, so every
-        match in the view is shown once before the carousel moves on. Uses the
-        cached snapshot (no network); returns None (carousel default) until the
-        cache warms or when there are no fixtures."""
+        """Tell the carousel how long to dwell on the match views: PAGE_HOLD per
+        match, so every match is shown once before the carousel moves on. Uses the
+        cached snapshot (no network); None means the carousel default dwell.
+        Standings is left at the default — it rotates its many groups across
+        visits (see _render_standings) rather than in one long block."""
         if self.espn is None or view_id == "standings":
             return None
         snap = self.espn.cached()
