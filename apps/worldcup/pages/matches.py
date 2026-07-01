@@ -9,6 +9,7 @@ from pi_led_core.canvas import (
     ACCENT,
     CYAN,
     GRAY,
+    GREEN,
     HEIGHT,
     PX_BIG,
     PX_HUGE,
@@ -100,14 +101,108 @@ def _format_scorer_line(goal) -> str:
     return f"{minute} {name[:max_name]}".strip()
 
 
-def _draw_header(draw, home, away, home_primary, away_primary) -> None:
-    """Team abbreviations (kenpixel) with a full-brightness flag-color chip."""
+def _draw_team_chip(draw, x0, x1, color, *, win=False, lose=False) -> None:
+    """Flag-color underline under a team abbreviation. The winner gets a thicker,
+    full-brightness chip; the loser a thin, muted one; undecided is the default."""
+    if lose:
+        filled_rect(draw, x0, 9, x1, 10, scale_color(color, 0.4))
+    elif win:
+        filled_rect(draw, x0, 9, x1, 11, color)  # 3px — reads as "heavier"
+    else:
+        filled_rect(draw, x0, 9, x1, 10, color)
+
+
+def _draw_winner_tri(draw, cx, y, color) -> None:
+    """Small upward triangle (5 wide) pointing up at the winning team's name."""
+    draw.point((cx, y), fill=color)
+    draw.line([(cx - 1, y + 1), (cx + 1, y + 1)], fill=color)
+    draw.line([(cx - 2, y + 2), (cx + 2, y + 2)], fill=color)
+
+
+def _draw_check(draw, x, y, color) -> None:
+    """A small check mark (✓, 5 wide × 4 tall) with its bottom-left vertex low."""
+    for dx, dy in ((0, 2), (1, 3), (2, 2), (3, 1), (4, 0)):
+        draw.point((x + dx, y + dy), fill=color)
+
+
+def _draw_winner_mark(draw, cx, y, color, *, shootout, tick) -> None:
+    """The badge under the winning team's name. A team-color triangle for a
+    decided-in-play final; a green ✓ when it was won on penalties — so the two
+    kinds of win read differently at a glance. Gentle pulse, never strobes."""
+    if shootout:
+        _draw_check(draw, cx - 2, y, pulse_color(GREEN, tick, period=2.2, min_factor=0.6))
+    else:
+        _draw_winner_tri(draw, cx, y + 1, pulse_color(color, tick, period=2.4, min_factor=0.6))
+
+
+def _draw_header(draw, home, away, home_primary, away_primary,
+                 winner_side=None, shootout=False, tick=0.0) -> None:
+    """Team abbreviations (kenpixel) with a full-brightness flag-color chip.
+
+    On decided finals the winner is called out: its abbreviation stays bright
+    white with a heavier chip + a marker beneath, while the loser is muted — so
+    a glance lands on the winner. Live/scheduled cards (winner_side=None) are
+    unchanged: both bright, plain chips."""
     home_w = px_text_width(home, PX_SMALL)
     away_w = px_text_width(away, PX_SMALL)
-    draw_px(draw, (4, 1), home, fill=WHITE, size=PX_SMALL)
-    draw_px(draw, (WIDTH - 4 - away_w, 1), away, fill=WHITE, size=PX_SMALL)
-    filled_rect(draw, 4, 9, 4 + home_w - 1, 10, home_primary)
-    filled_rect(draw, WIDTH - 4 - away_w, 9, WIDTH - 5, 10, away_primary)
+    home_x0 = 4
+    away_x0 = WIDTH - 4 - away_w
+    decided = winner_side in ("home", "away")
+    home_win = winner_side == "home"
+    away_win = winner_side == "away"
+
+    home_txt = WHITE if (home_win or not decided) else scale_color(WHITE, 0.45)
+    away_txt = WHITE if (away_win or not decided) else scale_color(WHITE, 0.45)
+    draw_px(draw, (home_x0, 1), home, fill=home_txt, size=PX_SMALL)
+    draw_px(draw, (away_x0, 1), away, fill=away_txt, size=PX_SMALL)
+
+    _draw_team_chip(draw, home_x0, home_x0 + home_w - 1, home_primary,
+                    win=home_win, lose=decided and not home_win)
+    _draw_team_chip(draw, away_x0, WIDTH - 5, away_primary,
+                    win=away_win, lose=decided and not away_win)
+
+    if home_win:
+        _draw_winner_mark(draw, home_x0 + home_w // 2, 13, home_primary,
+                          shootout=shootout, tick=tick)
+    elif away_win:
+        _draw_winner_mark(draw, away_x0 + away_w // 2, 13, away_primary,
+                          shootout=shootout, tick=tick)
+
+
+def _pen_int(s) -> int | None:
+    try:
+        return int(str(s).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _draw_pip_col(draw, x, n, color, *, win) -> None:
+    """A vertical stack of `n` 2×2 pips, centered in the hero band. The winner's
+    column is full-bright; the loser's is muted — so you can literally count the
+    converted penalties (e.g. 4 bright vs 3 dim) flanking the level score."""
+    if n <= 0:
+        return
+    pitch = 3
+    col = color if win else scale_color(color, 0.5)
+    y0 = 27 - (n * pitch - 1) // 2
+    for i in range(n):
+        yy = y0 + i * pitch
+        filled_rect(draw, x, yy, x + 1, yy + 1, col)
+
+
+def _draw_shootout_pips(draw, match, home_c, away_c, winner_side) -> None:
+    """Flank the (level) regulation score with each side's converted-penalty pips
+    — home on the left, away on the right — a shape nothing else on the card has,
+    so a penalty shootout reads instantly even before the eye finds the PK badge.
+    Skipped for long sudden-death tallies (the numeric PK footer carries those)."""
+    hp = _pen_int(match.home.pen_score)
+    ap = _pen_int(match.away.pen_score)
+    if hp is None or ap is None:
+        return
+    if max(hp, ap) > 5:  # would overflow the band — lean on the PK x-y footer
+        return
+    _draw_pip_col(draw, 3, hp, home_c, win=winner_side == "home")
+    _draw_pip_col(draw, WIDTH - 5, ap, away_c, win=winner_side == "away")
 
 
 def _draw_pager(draw, page_idx, page_count) -> None:
@@ -142,6 +237,14 @@ def render(
     is_halftime = match.status_raw == _HALFTIME
     flashing = goal_flash_remaining > 0
 
+    # Decided finals only: who won (incl. on penalties). Drives the header cue.
+    winner_side = None
+    if match.is_final:
+        if match.home.winner:
+            winner_side = "home"
+        elif match.away.winner:
+            winner_side = "away"
+
     # Black background + full-brightness team-color edge bars. On the LED panel
     # black = pixels off = real contrast and zero flicker; bright crisp glyphs
     # (no glow) read cleanly from across the room.
@@ -151,7 +254,8 @@ def render(
     # phases so the two sides don't move in lockstep)
     sweep_vbar(draw, 0, 0, HEIGHT - 1, home_primary, tick)
     sweep_vbar(draw, WIDTH - 1, 0, HEIGHT - 1, away_primary, tick + 1.3)
-    _draw_header(draw, home, away, home_primary, away_primary)
+    _draw_header(draw, home, away, home_primary, away_primary,
+                 winner_side=winner_side, shootout=match.is_shootout, tick=tick)
 
     # ── hero: score or kickoff time (crisp, no glow) ──
     if is_scheduled:
@@ -205,6 +309,8 @@ def render(
             hi = match.home.pen_score if win_home else match.away.pen_score
             lo = match.away.pen_score if win_home else match.home.pen_score
             draw_px(draw, (4 + bdg_w + 8, 38), f"{w_abbr} {hi}-{lo}"[:9], fill=w_col, size=PX_SMALL)
+            # plus the converted-penalty pips flanking the level score above
+            _draw_shootout_pips(draw, match, home_primary, away_primary, winner_side)
         else:
             tail = (match.short_detail or "").strip().upper()
             if tail and tail not in {"FT", "FULL", "FULL TIME", "FINAL"}:

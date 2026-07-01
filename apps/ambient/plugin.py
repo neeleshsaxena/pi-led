@@ -15,8 +15,10 @@ from .render import EFFECTS
 
 _LABELS = {
     "plasma": "Plasma",
+    "aurora": "Aurora",
     "matrix": "Matrix Rain",
     "fire": "Fire",
+    "embers": "Embers",
     "starfield": "Starfield",
     "life": "Game of Life",
 }
