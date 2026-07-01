@@ -31,8 +31,10 @@ from pi_led_core.canvas import (
     draw_px,
     draw_px_centered,
     filled_rect,
+    lerp_color,
     micro_text_width,
     new_canvas,
+    pulse_color,
     px_cap_height,
     px_text_width,
     scale_color,
@@ -80,8 +82,20 @@ def _team_color(real: bool, decided: bool, win: bool, primary):
     if not real:
         return scale_color(GRAY, 0.45)       # TBD
     if decided:
-        return primary if win else scale_color(GRAY, 0.6)  # winner pops, loser dims
+        return primary if win else scale_color(GRAY, 0.35)  # winner pops, loser dims hard
     return scale_color(WHITE, 0.9)           # known team, tie not played yet
+
+
+def _wedge(draw, right_edge: bool, y: int, ch: int, color) -> None:
+    """A bright wedge on the row edge pointing INWARD — the winner 'advances'
+    toward the center/next round. Lives in the chip zone, so it costs the score
+    no horizontal room (a 64px row can't fit an inline marker between two 3-char
+    abbrevs and the score)."""
+    mid = y + (ch - 1) // 2
+    if not right_edge:  # left edge ▶
+        draw.polygon([(0, y), (0, y + ch - 1), (4, mid)], fill=color)
+    else:               # right edge ◀
+        draw.polygon([(WIDTH - 1, y), (WIDTH - 1, y + ch - 1), (WIDTH - 5, mid)], fill=color)
 
 
 def _chip(draw, x: int, y: int, ch: int, primary, *, real: bool, decided: bool, win: bool) -> None:
@@ -96,7 +110,7 @@ def _chip(draw, x: int, y: int, ch: int, primary, *, real: bool, decided: bool, 
     filled_rect(draw, x, y, x + _CHIP_W - 1, y + ch - 1, color)
 
 
-def _draw_row(draw, y: int, m: Match, tz) -> None:
+def _draw_row(draw, y: int, m: Match, tz, tick: float) -> None:
     h_disp, h_real = _disp(m.home)
     a_disp, a_real = _disp(m.away)
     decided = m.is_final
@@ -105,32 +119,46 @@ def _draw_row(draw, y: int, m: Match, tz) -> None:
     h_primary, _ = colors_for(h_disp) if h_real else (GRAY, GRAY)
     a_primary, _ = colors_for(a_disp) if a_real else (GRAY, GRAY)
     ch = px_cap_height(PX_SMALL)
+    win = pulse_color(GREEN, tick, period=1.4, min_factor=0.55)  # gently breathing wedge
 
-    # edge chips in each team's flag color
-    _chip(draw, 0, y, ch, h_primary, real=h_real, decided=decided, win=h_win)
-    _chip(draw, WIDTH - _CHIP_W, y, ch, a_primary, real=a_real, decided=decided, win=a_win)
+    # edge marker: a bright pulsing inward wedge for the winner; otherwise the
+    # team's flag-color chip (dim for a decided loser, faint for TBD).
+    if h_win:
+        _wedge(draw, False, y, ch, win)
+    else:
+        _chip(draw, 0, y, ch, h_primary, real=h_real, decided=decided, win=False)
+    if a_win:
+        _wedge(draw, True, y, ch, win)
+    else:
+        _chip(draw, WIDTH - _CHIP_W, y, ch, a_primary, real=a_real, decided=decided, win=False)
 
-    # team abbreviations (winner pops in its color, loser dims, TBD dash)
+    # team abbreviations at fixed positions (winner pops in its color + underline,
+    # loser dims hard, TBD = dash).
     hx = _CHIP_W + 2
-    h_col = _team_color(h_real, decided, m.home.winner, h_primary)
-    draw_px(draw, (hx, y), h_disp, fill=h_col, size=PX_SMALL)
-    aw = px_text_width(a_disp, PX_SMALL)
-    ax = WIDTH - _CHIP_W - 2 - aw
-    a_col = _team_color(a_real, decided, m.away.winner, a_primary)
-    draw_px(draw, (ax, y), a_disp, fill=a_col, size=PX_SMALL)
-
-    # underline the advancing team in its color (a clear "through to next round" cue)
+    draw_px(draw, (hx, y), h_disp, fill=_team_color(h_real, decided, m.home.winner, h_primary), size=PX_SMALL)
     if h_win:
         filled_rect(draw, hx, y + ch, hx + px_text_width(h_disp, PX_SMALL) - 1, y + ch, h_primary)
+
+    aw = px_text_width(a_disp, PX_SMALL)
+    ax = WIDTH - _CHIP_W - 2 - aw
+    draw_px(draw, (ax, y), a_disp, fill=_team_color(a_real, decided, m.away.winner, a_primary), size=PX_SMALL)
     if a_win:
         filled_rect(draw, ax, y + ch, ax + aw - 1, y + ch, a_primary)
 
-    # center: score (decided/live) or kickoff date (scheduled)
+    # center: score (decided/live) or kickoff date (scheduled). A decided score
+    # leans the winner's color so the result reads from the middle too.
     if decided or m.is_live:
         mid = f"{(m.home.score or '0')}-{(m.away.score or '0')}"
         if m.is_shootout:
             mid += "p"  # decided on penalties
-        mcol = YELLOW if m.is_live else WHITE
+        if m.is_live:
+            mcol = YELLOW
+        elif h_win:
+            mcol = lerp_color(h_primary, WHITE, 0.5)
+        elif a_win:
+            mcol = lerp_color(a_primary, WHITE, 0.5)
+        else:
+            mcol = WHITE
     else:
         dt = m.kickoff_utc.astimezone(tz)
         mid = f"{dt.month}/{dt.day}"
@@ -169,7 +197,7 @@ def render(slug, matches, round_idx, round_count, page_idx, page_count, tz, tick
     block_h = (n - 1) * _ROW_PITCH + px_cap_height(PX_SMALL) if n else 0
     y0 = band_top + max(0, ((band_bot - band_top) - block_h) // 2)
     for i, m in enumerate(matches):
-        _draw_row(draw, y0 + i * _ROW_PITCH, m, tz)
+        _draw_row(draw, y0 + i * _ROW_PITCH, m, tz, tick)
     _draw_round_dots(draw, round_idx, round_count, tint)
     return img
 
