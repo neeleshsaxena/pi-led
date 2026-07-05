@@ -31,7 +31,7 @@ BRACKET_HOLD = float(os.environ.get("LED_BRACKET_HOLD", "7"))
 # the round of 32 — enable later rounds (in the worldcup config's bracket_rounds)
 # once R32 wraps. With one round it renders the per-round list; with two+ it
 # renders the converging tree.
-DEFAULT_BRACKET_ROUNDS = [r.strip() for r in os.environ.get("LED_BRACKET_ROUNDS", "round-of-16,semifinals").split(",") if r.strip()]
+DEFAULT_BRACKET_ROUNDS = [r.strip() for r in os.environ.get("LED_BRACKET_ROUNDS", "round-of-16,quarterfinals,semifinals").split(",") if r.strip()]
 
 
 def _is_real(team) -> bool:
