@@ -30,7 +30,6 @@ DEFAULT_VIEWS = [
     "worldcup:today",
     "worldcup:next",
     "worldcup:bracket",
-    "worldcup:tour",
     "weather:current",
     "weather:forecast",
     "clock:digital",

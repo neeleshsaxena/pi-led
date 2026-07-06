@@ -7,8 +7,8 @@ at a time. This is only used when two+ knockout rounds are enabled; with a singl
 round the plugin renders the per-round list (bracket.py) instead.
 
 Lead-authored sibling of bracket.py (the per-round list). Pure rendering — shares
-its visual language (flag-color chips, per-round title tint, winner pops/loser
-dims, TBD dash). See deploy/UI-UX-WORKSTREAM.md for ownership.
+its visual language (flag badges, per-round title tint, winner pops/loser dims,
+TBD dash). See deploy/UI-UX-WORKSTREAM.md for ownership.
 """
 from __future__ import annotations
 
@@ -28,14 +28,13 @@ from pi_led_core.canvas import (
     YELLOW,
     draw_micro,
     draw_micro_centered,
-    draw_px,
     draw_px_centered,
     filled_rect,
     new_canvas,
-    px_cap_height,
     scale_color,
 )
 
+from ..flags import flag_badge
 from ..teams import colors_for
 
 _LABELS = {
@@ -72,8 +71,11 @@ def _row_color(real: bool, decided: bool, win: bool, primary):
     return scale_color(WHITE, 0.9)
 
 
-def _feeder(draw, x: int, top: int, m, tz) -> None:
-    """Compact 2-row feeder match ('ABV S' per team, winner colored). None = TBD."""
+def _feeder(img, draw, x: int, top: int, m, tz) -> None:
+    """Compact 2-row feeder match: 7×7 flag badge + 3-letter code, winner styled.
+    Each team row is 8px tall; the badge fills 7px with 1px breathing room below.
+    Connector lines begin at x=24, so all content fits in x=0..23.
+    None → show a 'TBD' placeholder instead."""
     if m is None:
         draw_micro(draw, (x, top + 4), "TBD", fill=scale_color(GRAY, 0.5))
         return
@@ -84,31 +86,34 @@ def _feeder(draw, x: int, top: int, m, tz) -> None:
         win = decided and team.winner
         primary, _ = colors_for(disp) if real else (GRAY, GRAY)
         col = _row_color(real, decided, win, primary)
-        draw_micro(draw, (x, y), disp, fill=col)
+        # 7×7 flag badge (fits the 8px row; auto-fallback for unknown teams)
+        badge = flag_badge(disp, 7)
+        img.paste(badge, (x, y), badge)
+        # Code text right of badge, vertically centred in the 8px row ((8-5)//2 = 1)
+        draw_micro(draw, (x + 8, y + 1), disp, fill=col)
         if decided or m.is_live:
-            sc = (team.score or "0")
+            sc = team.score or "0"
             if m.is_shootout and win:
                 sc += "p"
-            draw_micro(draw, (x + 15, y), sc, fill=col)
+            draw_micro(draw, (x + 20, y + 1), sc, fill=col)
 
 
-def _focus(draw, x: int, m, tz) -> None:
-    """Focus tie at right: 2 teams (PX_SMALL) with flag chips, score/date below."""
+def _focus(img, draw, x: int, m, tz) -> None:
+    """Focus tie at right: 9×9 flag badge + 3-letter code (micro) per team.
+    Teams sit 9px apart so the two badges are flush with no gap between them.
+    Score / date line appears below both teams at y=44."""
     decided = m.is_final
-    ch = px_cap_height(PX_SMALL)
     for r, team in enumerate((m.home, m.away)):
         y = 24 + r * 9
         disp, real = _disp(team)
         win = decided and team.winner
         primary, _ = colors_for(disp) if real else (GRAY, GRAY)
-        draw_px(draw, (x, y), disp, fill=_row_color(real, decided, win, primary), size=PX_SMALL)
-        if real and (win or not decided):
-            chip = primary
-        elif real:
-            chip = scale_color(primary, 0.35)
-        else:
-            chip = scale_color(GRAY, 0.3)
-        filled_rect(draw, WIDTH - 2, y, WIDTH - 1, y + ch - 1, chip)
+        col = _row_color(real, decided, win, primary)
+        # 9×9 flag badge — provides team identity; replaces the old color chip
+        badge = flag_badge(disp, 9)
+        img.paste(badge, (x, y), badge)
+        # Code in micro font right of badge, vertically centred ((9-5)//2 = 2px)
+        draw_micro(draw, (x + 10, y + 2), disp, fill=col)
     if decided or m.is_live:
         mid = f"{(m.home.score or '0')}-{(m.away.score or '0')}"
         if m.is_shootout:
@@ -118,7 +123,7 @@ def _focus(draw, x: int, m, tz) -> None:
         dt = m.kickoff_utc.astimezone(tz)
         mid = f"{dt.month}/{dt.day}"
         mcol = scale_color(GRAY, 0.7)
-    draw_micro(draw, (x, 44), mid, fill=mcol)
+    draw_micro_centered(draw, 44, mid, fill=mcol, x0=x, x1=WIDTH)
 
 
 def _connectors(draw, tint) -> None:
@@ -152,10 +157,10 @@ def render(slug, focus, feeder_a, feeder_b, round_idx, round_count, cell_idx, ce
     tint = _TINT.get(slug, ACCENT)
     draw_px_centered(draw, 1, _LABELS.get(slug, slug.replace("-", " ").upper()), fill=tint, size=PX_SMALL)
     filled_rect(draw, 6, 9, WIDTH - 7, 9, scale_color(tint, 0.55))
-    _feeder(draw, 2, 13, feeder_a, tz)
-    _feeder(draw, 2, 41, feeder_b, tz)
+    _feeder(img, draw, 1, 13, feeder_a, tz)
+    _feeder(img, draw, 1, 41, feeder_b, tz)
     _connectors(draw, tint)
-    _focus(draw, 42, focus, tz)
+    _focus(img, draw, 42, focus, tz)
     _dots(draw, round_idx, round_count, tint)
     return img
 
