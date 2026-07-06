@@ -220,7 +220,12 @@ class WorldCupApp(LedApp):
         # Two+ enabled rounds -> converging tree; a single round -> per-round list.
         cells = self._bracket_cells(rounds) if len(rounds) >= 2 else []
         if cells:
-            # Tree: persistent rotation across visits (too many cells for one dwell).
+            # Tree: the carousel dwell is sized (view_cycle_seconds) to show every
+            # cell for a full BRACKET_HOLD, so restart at cell 1 on each visit and
+            # step through all of them in order (mirrors the single-round list path).
+            if reentered:
+                self._brk_idx = 0
+                self._brk_rotate = tick
             idx = self._advance_brk(len(cells), tick, hold=BRACKET_HOLD)
             slug, focus, fa, fb, ri, rc = cells[idx]
             return bracket_tree.render(slug, focus, fa, fb, ri, rc, idx, len(cells), self.tz, tick=tick)
@@ -278,10 +283,10 @@ class WorldCupApp(LedApp):
     def view_cycle_seconds(self, view_id: str, config: dict) -> float | None:
         """Tell the carousel how long to dwell so a view shows all its content once
         before moving on: PAGE_HOLD per match (today/next), BRACKET_HOLD per page
-        for a single-round bracket (so every R32 tie is shown). Uses the cached
-        snapshot (no network); None = the carousel default dwell. Standings and the
-        multi-round bracket tree are left at the default — they rotate their many
-        pages across visits (see _render_standings / _render_bracket)."""
+        for a single-round bracket (every R32 tie) and per cell for the multi-round
+        bracket tree (every matchup gets equal airtime). Uses the cached snapshot
+        (no network); None = the carousel default dwell. Standings is left at the
+        default — it rotates its many groups across visits (see _render_standings)."""
         if self.espn is None or view_id == "standings":
             return None
         snap = self.espn.cached()
@@ -292,7 +297,10 @@ class WorldCupApp(LedApp):
             if len(rounds) == 1:  # list mode: dwell long enough to show every page
                 n = len(self._bracket_list_pages(rounds))
                 return n * BRACKET_HOLD if n > 0 else None
-            return None  # tree mode: rotates across visits
+            # tree mode: dwell long enough to show every cell for a full BRACKET_HOLD
+            # (equal airtime each), so all matchups appear before the carousel moves on
+            cells = self._bracket_cells(rounds)
+            return len(cells) * BRACKET_HOLD if cells else None
         mode = "next" if view_id == "next" else "today"
         n = len(matches_page.pick_day_matches(snap, mode, self.tz))
         return n * PAGE_HOLD_SECONDS if n > 0 else None
