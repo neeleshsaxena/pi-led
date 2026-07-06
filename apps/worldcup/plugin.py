@@ -182,12 +182,14 @@ class WorldCupApp(LedApp):
         return None
 
     def _bracket_cells(self, rounds) -> list[tuple]:
-        """Tree cells: each next-round tie + its two feeder matches. Only emitted
-        for rounds that have a previous enabled round, and skipping all-TBD ties."""
+        """One cell per tie across ALL enabled rounds, so every matchup gets equal
+        airtime. A later round carries its two feeder matches (converging tree);
+        the first enabled round has no feeder round shown (feeders = None, rendered
+        as a spotlight matchup). All-TBD ties are skipped."""
         cells: list[tuple] = []
-        for i in range(1, len(rounds)):
+        for i in range(len(rounds)):
             slug, matches = rounds[i]
-            prev = rounds[i - 1][1]
+            prev = rounds[i - 1][1] if i > 0 else []
             for m in matches:
                 fa, fb = self._feeder_for(m.home, prev), self._feeder_for(m.away, prev)
                 if _is_real(m.home) or _is_real(m.away) or fa or fb:
@@ -228,6 +230,10 @@ class WorldCupApp(LedApp):
                 self._brk_rotate = tick
             idx = self._advance_brk(len(cells), tick, hold=BRACKET_HOLD)
             slug, focus, fa, fb, ri, rc = cells[idx]
+            if fa is None and fb is None:
+                # First enabled round (no feeder round to converge from): show the
+                # tie as a big spotlight matchup rather than an empty tree.
+                return tour_page.render_slide(slug, focus, idx, len(cells), self.tz, tick=tick)
             return bracket_tree.render(slug, focus, fa, fb, ri, rc, idx, len(cells), self.tz, tick=tick)
         pages = self._bracket_list_pages(rounds)
         if not pages:
