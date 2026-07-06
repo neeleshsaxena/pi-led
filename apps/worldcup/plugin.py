@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 
 from PIL import Image
 
+from pi_led_core.canvas import WIDTH, new_canvas
 from pi_led_core.plugin import LedApp, RenderContext, ViewSpec
 
 from .espn import ESPNClient, group_knockout
@@ -14,6 +15,7 @@ from .pages import bracket as bracket_page
 from .pages import bracket_tree
 from .pages import matches as matches_page
 from .pages import standings as standings_page
+from .pages import tour as tour_page
 from .standings import StandingsClient
 
 LOCAL_TZ = datetime.now().astimezone().tzinfo or ZoneInfo("UTC")
@@ -32,6 +34,9 @@ BRACKET_HOLD = float(os.environ.get("LED_BRACKET_HOLD", "7"))
 # once R32 wraps. With one round it renders the per-round list; with two+ it
 # renders the converging tree.
 DEFAULT_BRACKET_ROUNDS = [r.strip() for r in os.environ.get("LED_BRACKET_ROUNDS", "round-of-16,quarterfinals,semifinals").split(",") if r.strip()]
+# Flag "matchup tour": how long each tie is held, and the horizontal slide time.
+TOUR_DWELL = float(os.environ.get("LED_TOUR_DWELL", "3.5"))
+TOUR_SLIDE = float(os.environ.get("LED_TOUR_SLIDE", "0.7"))
 
 
 def _is_real(team) -> bool:
@@ -58,6 +63,8 @@ class WorldCupApp(LedApp):
         self._grp_rotate = 0.0
         self._brk_idx = 0          # bracket page rotation, persists across visits
         self._brk_rotate = 0.0
+        self._tour_idx = 0         # matchup-tour position, persists across visits
+        self._tour_anchor = 0.0
         self._last_view: str | None = None
         self._last_render_tick = 0.0
         self._score_cache: dict[str, tuple[str, str]] = {}
@@ -68,6 +75,7 @@ class WorldCupApp(LedApp):
             ViewSpec(id="today", label="Matches Today"),
             ViewSpec(id="next", label="Next Scheduled"),
             ViewSpec(id="bracket", label="Knockout Bracket"),
+            ViewSpec(id="tour", label="Bracket Tour"),
             ViewSpec(id="standings", label="WC Standings"),
         ]
 
@@ -228,6 +236,45 @@ class WorldCupApp(LedApp):
         slug, matches, ri, rc = pages[idx]
         return bracket_page.render(slug, matches, ri, rc, idx, len(pages), self.tz, tick=tick)
 
+    def _tour_matchups(self, snapshot, config) -> list[tuple]:
+        """Knockout ties to tour, across the enabled rounds (bracket order), one
+        per (slug, match). Skips fully-undetermined ties (both teams TBD)."""
+        items: list[tuple] = []
+        for slug, matches in self._enabled_rounds(snapshot, config):
+            for m in matches:
+                if _is_real(m.home) or _is_real(m.away):
+                    items.append((slug, m))
+        return items
+
+    async def _render_tour(self, tick: float, config: dict) -> Image.Image:
+        snapshot = await self.espn.get()
+        items = self._tour_matchups(snapshot, config)
+        if not items:
+            return tour_page.render_empty()
+        n = len(items)
+        period = TOUR_DWELL + TOUR_SLIDE
+        if self._tour_anchor == 0.0:
+            self._tour_anchor = tick
+        guard = 0
+        while n > 1 and tick - self._tour_anchor >= period and guard < 10000:
+            self._tour_idx = (self._tour_idx + 1) % n
+            self._tour_anchor += period
+            guard += 1
+        i = self._tour_idx % n
+        cur = tour_page.render_slide(items[i][0], items[i][1], i, n, self.tz, tick)
+        phase = tick - self._tour_anchor
+        if n == 1 or phase <= TOUR_DWELL:
+            return cur
+        # scroll horizontally from the current tie to the next one
+        frac = min(1.0, (phase - TOUR_DWELL) / TOUR_SLIDE)
+        off = int(round(frac * WIDTH))
+        j = (i + 1) % n
+        nxt = tour_page.render_slide(items[j][0], items[j][1], j, n, self.tz, tick)
+        out = new_canvas()
+        out.paste(cur, (-off, 0))
+        out.paste(nxt, (WIDTH - off, 0))
+        return out
+
     def view_cycle_seconds(self, view_id: str, config: dict) -> float | None:
         """Tell the carousel how long to dwell so a view shows all its content once
         before moving on: PAGE_HOLD per match (today/next), BRACKET_HOLD per page
@@ -263,6 +310,8 @@ class WorldCupApp(LedApp):
             return await self._render_standings(ctx.tick)
         if ctx.view == "bracket":
             return await self._render_bracket(ctx.tick, ctx.config or {}, reentered)
+        if ctx.view == "tour":
+            return await self._render_tour(ctx.tick, ctx.config or {})
         # "today" / "next" (and any unknown view defaults to today)
         mode = "next" if ctx.view == "next" else "today"
         return await self._render_matches(mode, ctx.tick)
