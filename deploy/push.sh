@@ -13,7 +13,7 @@
 set -euo pipefail
 
 PI="${PI_HOST:-pi@raspberrypi.local}"
-DEST="/home/pi/pi-led/"
+DEST="${PI_DEST:-/home/pi/pi-led/}"
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/"
 
 echo "→ syncing  $SRC"
