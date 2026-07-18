@@ -3,6 +3,7 @@ and appending its app instance to ALL_APPS — the controller discovers the rest
 (views, admin routes) through the LedApp contract."""
 
 from .ambient import AmbientApp
+from .birthday import BirthdayApp
 from .carousel import CarouselApp
 from .clock import ClockApp
 from .messages import MessagesApp
@@ -16,4 +17,5 @@ ALL_APPS = [
     WeatherApp(),
     ClockApp(),
     AmbientApp(),
+    BirthdayApp(),
 ]
