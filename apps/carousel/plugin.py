@@ -29,7 +29,6 @@ from pi_led_core.plugin import LedApp, RenderContext
 DEFAULT_VIEWS = [
     "worldcup:today",
     "worldcup:next",
-    "worldcup:bracket",
     "birthday:main",
     "weather:current",
     "weather:forecast",
