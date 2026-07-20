@@ -30,6 +30,7 @@ DEFAULT_VIEWS = [
     "worldcup:today",
     "worldcup:next",
     "birthday:main",
+    "birthday:milestone",
     "weather:current",
     "weather:forecast",
     "clock:digital",

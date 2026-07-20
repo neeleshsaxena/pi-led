@@ -72,6 +72,30 @@ def _balloon(draw, cx, cy, color) -> None:
         draw.point((cx + (k % 2), cy + 5 + k), fill=scale_color(GRAY, 0.6))
 
 
+def _bob(cy: int, tick: float, phase: float = 0.0, amp: float = 2.0) -> int:
+    """Gentle float for a balloon — smooth, never leaves the panel."""
+    return int(round(cy + amp * math.sin(tick * 1.5 + phase)))
+
+
+def _cake(draw, cx: int, cy: int, tick: float, candles: int = 3) -> None:
+    """Layer cake with flickering candles. (cx, cy) = center of the frosting line;
+    the cake occupies roughly cy-8 (flames) .. cy+8 (plate)."""
+    w = 15
+    x0, x1 = cx - w // 2, cx + w // 2
+    gap = w // (candles + 1)
+    for i in range(candles):
+        px_ = x0 + gap * (i + 1)
+        draw.line([(px_, cy - 6), (px_, cy - 2)], fill=(255, 246, 224))       # candle
+        flame = pulse_color(YELLOW, tick + i * 0.7, period=0.5, min_factor=0.6)
+        draw.point((px_, cy - 8), fill=flame)                                  # flame tip
+        draw.point((px_, cy - 7), fill=scale_color(ORANGE, 0.95))              # flame base
+    filled_rect(draw, x0, cy - 1, x1, cy + 1, (255, 240, 250))                 # frosting
+    filled_rect(draw, x0, cy + 2, x1, cy + 7, PINK)                            # body
+    for i in range(x0 + 1, x1, 3):                                             # sprinkles
+        draw.point((i, cy + 4), fill=_PARTY[i % len(_PARTY)])
+    filled_rect(draw, x0 - 2, cy + 8, x1 + 2, cy + 8, scale_color(CYAN, 0.85))  # plate
+
+
 def _marquee(draw, tick, color=GOLD, speed=11.0) -> None:
     """Chasing lights around the border (cinema-sign vibe)."""
     step = 4
@@ -126,13 +150,16 @@ def _countdown(name, days, tick):
     draw = ImageDraw.Draw(img)
     draw_px_centered(draw, 1, name, fill=PINK, size=PX_SMALL)
     draw_micro_centered(draw, 9, "BIRTHDAY IN", fill=scale_color(GOLD, 0.9))
-    _balloon(draw, 7, 30, PINK)
-    _balloon(draw, WIDTH - 8, 33, CYAN)
+    # balloons actually bob now (offset phases so they don't move in lockstep)
+    _balloon(draw, 7, _bob(28, tick, 0.0), PINK)
+    _balloon(draw, WIDTH - 8, _bob(30, tick, 1.9), CYAN)
     num = str(days)
-    size = PX_HUGE if len(num) == 1 else PX_BIG
-    ny = 18 if len(num) == 1 else 21
+    one = len(num) == 1
+    size = PX_HUGE if one else PX_BIG
+    ny = 15 if one else 21
     draw_px_centered(draw, ny, num, fill=pulse_color(GOLD, tick, period=2.0, min_factor=0.7), size=size)
-    draw_px_centered(draw, 46, "DAYS" if days != 1 else "DAY", fill=WHITE, size=PX_SMALL)
+    draw_px_centered(draw, 38, "DAYS" if days != 1 else "DAY", fill=WHITE, size=PX_SMALL)
+    _cake(draw, WIDTH // 2, 54, tick)
     sparkle(draw, tick, count=9, seed=4)
     return img
 
@@ -146,8 +173,17 @@ def _final(name, remaining, tick):
     m = int((remaining % 3600) // 60)
     s = int(remaining % 60)
     draw_px_centered(draw, 5, "ALMOST!", fill=pulse_color(PINK, tick, period=1.2, min_factor=0.6), size=PX_SMALL)
-    draw_px_centered(draw, 24, f"{h:02d}:{m:02d}:{s:02d}", fill=WHITE, size=PX_BIG)
-    draw_micro_centered(draw, 46, f"TIL {name}'S DAY", fill=CYAN)
+    # HH:MM:SS at PX_BIG is ~96px — far wider than the 64px panel (it used to be
+    # clipped at both edges). Big HH:MM reads as the hero; seconds tick beneath.
+    draw_px_centered(draw, 17, f"{h:02d}:{m:02d}", fill=WHITE, size=PX_BIG)
+    draw_px_centered(draw, 34, f"{s:02d}", fill=pulse_color(GOLD, tick, period=1.0, min_factor=0.65), size=PX_SMALL)
+    draw_micro_centered(draw, 45, f"TIL {name}'S DAY", fill=CYAN)
+    # how far through the final day we are — fills as midnight approaches
+    frac = max(0.0, min(1.0, 1.0 - remaining / 86400.0))
+    filled_rect(draw, 6, 54, WIDTH - 7, 54, scale_color(GRAY, 0.35))
+    end = 6 + int(frac * (WIDTH - 13))
+    if end > 6:
+        filled_rect(draw, 6, 54, end, 54, GOLD)
     return img
 
 
@@ -166,9 +202,38 @@ def _celebration(name, tick):
     _rising_balloons(draw, tick, count=4)
     _confetti(img, tick, count=24, speed=15.0)
     _marquee(draw, tick, color=rainbow(tick, period=2.2), speed=14.0)
-    # readable banner band behind the scrolling greeting
-    filled_rect(draw, 0, 26, WIDTH - 1, 36, (10, 10, 14))
+    # Readable banner behind the scrolling greeting. TRUE black, not a dim wash —
+    # partial-brightness fills visibly flicker on this HUB75 panel. Bright rules
+    # above/below frame the band instead of relying on a lifted background.
+    filled_rect(draw, 0, 25, WIDTH - 1, 37, (0, 0, 0))
+    rule = rainbow(tick, period=2.2)
+    filled_rect(draw, 0, 24, WIDTH - 1, 24, rule)
+    filled_rect(draw, 0, 38, WIDTH - 1, 38, rule)
     _scroll(img, f"HAPPY BIRTHDAY {name}!   ", 28, tick, rainbow(tick, period=1.3), speed=17.0)
+    return img
+
+
+def render_milestone(name, months, is_day=False, tick=0.0):
+    """Monthly milestone card — "<NAME> / N / MONTHS" over a candle-lit cake, with
+    confetti + a marquee. On the milestone day itself it goes full party (rainbow
+    marquee + fireworks); other days it's a calmer 'you are N months old' card."""
+    name = (name or "").upper()
+    img = new_canvas()
+    draw = ImageDraw.Draw(img)
+    _marquee(draw, tick, color=rainbow(tick, period=2.4) if is_day else GOLD, speed=9.0)
+    _confetti(img, tick, count=18 if is_day else 9, speed=10.0)
+    if is_day:
+        _fireworks(draw, tick)
+    draw_px_centered(draw, 2, name, fill=PINK, size=PX_SMALL)
+    num = str(max(0, int(months)))
+    draw_px_centered(
+        draw, 12, num,
+        fill=pulse_color(GOLD, tick, period=2.0, min_factor=0.7),
+        size=PX_HUGE if len(num) == 1 else PX_BIG,
+    )
+    draw_px_centered(draw, 33, "MONTHS" if months != 1 else "MONTH", fill=WHITE, size=PX_SMALL)
+    _cake(draw, WIDTH // 2, 52, tick, candles=max(1, min(int(months) or 1, 4)))
+    sparkle(draw, tick, count=8, seed=6)
     return img
 
 

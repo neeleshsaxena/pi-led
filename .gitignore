@@ -6,3 +6,8 @@ __pycache__/
 *.tmp
 .DS_Store
 *.egg-info/
+
+# Internal agent-coordination docs — kept local, never published
+deploy/UI-ASKS.md
+deploy/UI-UX-WORKSTREAM.md
+deploy/HARDWARE-HANDBACK.md
