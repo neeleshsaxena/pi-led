@@ -11,3 +11,6 @@ __pycache__/
 deploy/UI-ASKS.md
 deploy/UI-UX-WORKSTREAM.md
 deploy/HARDWARE-HANDBACK.md
+
+# Local deploy target (real host/path) — never published
+deploy/target.env

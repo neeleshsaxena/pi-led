@@ -27,8 +27,6 @@ from pi_led_core.plugin import LedApp, RenderContext
 # see any app's views() for valid ids (e.g. worldcup:next, clock:analog,
 # weather:forecast, ambient:plasma, messages:main).
 DEFAULT_VIEWS = [
-    "worldcup:today",
-    "worldcup:next",
     "birthday:main",
     "birthday:milestone",
     "weather:current",

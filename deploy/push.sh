@@ -12,9 +12,26 @@
 # pyproject.toml (rare). For normal code/UI iteration, this script is all you need.
 set -euo pipefail
 
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Local, gitignored target file holds the REAL host/path so the committed
+# defaults can stay generic. Create deploy/target.env with:
+#     : "${PI_HOST:=you@your-pi.local}"
+#     : "${PI_DEST:=/home/you/pi-led/}"
+# (the := form means an inline PI_HOST=... still wins).
+[ -f "$HERE/target.env" ] && . "$HERE/target.env"
+
 PI="${PI_HOST:-pi@raspberrypi.local}"
 DEST="${PI_DEST:-/home/pi/pi-led/}"
-SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/"
+SRC="$(cd "$HERE/.." && pwd)/"
+
+# Fail fast: an unreachable host otherwise makes rsync hang silently for minutes.
+if ! ssh -o ConnectTimeout=5 -o BatchMode=yes "$PI" true 2>/dev/null; then
+  echo "✗ can't reach '$PI' over ssh (5s timeout) — nothing was deployed." >&2
+  echo "  Point it at your Pi one of these ways:" >&2
+  echo "    PI_HOST=you@your-pi.local PI_DEST=/home/you/pi-led/ deploy/push.sh" >&2
+  echo "    …or create deploy/target.env (gitignored) with those two values." >&2
+  exit 1
+fi
 
 echo "→ syncing  $SRC"
 echo "      ->   $PI:$DEST"

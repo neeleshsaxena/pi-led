@@ -8,7 +8,7 @@ view_cycle_seconds. Data/config live here; pixel layout lives in render.py.
 from __future__ import annotations
 
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from PIL import Image
@@ -22,6 +22,12 @@ from .render import render_birthday, render_milestone
 DEFAULT_TZ = os.environ.get("BIRTHDAY_TZ", "America/Los_Angeles")  # PST/PDT
 SECONDARY_TZ = os.environ.get("BIRTHDAY_TZ2", "Asia/Kolkata")      # IST, shown briefly
 
+# Single source of truth for the fallback date/name — used by BOTH default_config()
+# and _countdown(), so a missing/partial stored config can't yield two answers.
+DEFAULT_NAME = os.environ.get("BIRTHDAY_NAME", "Friend")
+DEFAULT_MONTH = int(os.environ.get("BIRTHDAY_MONTH", "1"))
+DEFAULT_DAY = int(os.environ.get("BIRTHDAY_DAY", "1"))
+
 
 class BirthdayApp(LedApp):
     id = "birthday"
@@ -31,9 +37,9 @@ class BirthdayApp(LedApp):
         # Generic placeholders for the public repo; set the real name/date via the
         # stored config or the BIRTHDAY_* env vars (kept out of committed code).
         return {
-            "name": os.environ.get("BIRTHDAY_NAME", "Friend"),
-            "month": int(os.environ.get("BIRTHDAY_MONTH", "1")),
-            "day": int(os.environ.get("BIRTHDAY_DAY", "1")),
+            "name": DEFAULT_NAME,
+            "month": DEFAULT_MONTH,
+            "day": DEFAULT_DAY,
             "tz": DEFAULT_TZ,
             # Monthly-milestone view (e.g. a baby's "N months" card). Give a
             # milestone_dob (YYYY-MM-DD) to auto-count, or a fixed milestone_months.
@@ -85,7 +91,21 @@ class BirthdayApp(LedApp):
     def _countdown(self, config: dict) -> tuple[int, float]:
         cfg = config or {}
         now = datetime.now(self._zone(cfg))
-        month, day = int(cfg.get("month", 7)), int(cfg.get("day", 21))
+        # Preview override (force_days config / BIRTHDAY_FORCE_DAYS env): pretend the
+        # birthday is N days out so the final/celebration scenes can be exercised on
+        # real hardware without touching the live birthday config. Unset = normal.
+        forced = cfg.get("force_days", os.environ.get("BIRTHDAY_FORCE_DAYS"))
+        if forced not in (None, ""):
+            try:
+                d = int(forced)
+                midnight = (now + timedelta(days=1)).replace(
+                    hour=0, minute=0, second=0, microsecond=0
+                )
+                # ticks realistically toward midnight, so `final` shows a live HH:MM:SS
+                return d, (midnight - now).total_seconds() + max(0, d - 1) * 86400.0
+            except (TypeError, ValueError):
+                pass
+        month, day = int(cfg.get("month", DEFAULT_MONTH)), int(cfg.get("day", DEFAULT_DAY))
         target = self._target(now, month, day)
         days = (target.date() - now.date()).days          # 0 = today (birthday)
         remaining = (target - now).total_seconds()          # to midnight in that zone
@@ -99,7 +119,7 @@ class BirthdayApp(LedApp):
                 str(cfg.get("milestone_name", "Little One")), months, is_day, ctx.tick
             )
         days, remaining = self._countdown(cfg)
-        return render_birthday(str(cfg.get("name", "Friend")), days, remaining, ctx.tick)
+        return render_birthday(str(cfg.get("name", DEFAULT_NAME)), days, remaining, ctx.tick)
 
     def view_cycle_seconds(self, view_id: str, config: dict) -> float | None:
         # Linger on the panel when it's actually the big day.
