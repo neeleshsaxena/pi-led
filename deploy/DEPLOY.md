@@ -5,6 +5,28 @@ Mirrors the match-day-live deploy pattern. Web app on port **5070**, served at
 renderer drives the real panel via `HzellerSink` (runs as root for GPIO); on a
 machine without the `rgbmatrix` lib it falls back to **PNGSink** preview.
 
+## 0. Point the deploy at your Pi
+
+`deploy/push.sh` is the one-command deploy (sync → restart → health-check). Its
+committed defaults are deliberately generic (`pi@raspberrypi.local`,
+`/home/pi/pi-led/`). Point it at your own Pi either way:
+
+```bash
+# per-invocation
+PI_HOST=you@your-pi.local PI_DEST=/home/you/pi-led/ deploy/push.sh
+
+# ...or once, in a gitignored local file (recommended)
+cat > deploy/target.env <<'EOF'
+: "${PI_HOST:=you@your-pi.local}"
+: "${PI_DEST:=/home/you/pi-led/}"
+EOF
+deploy/push.sh          # now finds your Pi with no env vars
+```
+
+`push.sh` sources `deploy/target.env` when present, and preflights the host with a
+5-second SSH check — an unreachable target fails fast with a clear message instead
+of hanging in rsync.
+
 ## 1. Sync code (from Mac)
 
 ```bash
