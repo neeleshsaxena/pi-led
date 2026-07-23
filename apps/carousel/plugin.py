@@ -30,6 +30,8 @@ DEFAULT_VIEWS = [
     "birthday:milestone",
     "weather:current",
     "weather:forecast",
+    "plants:indoor",
+    "plants:outdoor",
     "clock:digital",
     "messages:main",
     "ambient:starfield",
