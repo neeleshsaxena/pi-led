@@ -22,6 +22,7 @@ from .rain import RainClient
 from .render import render_group
 
 TZ = ZoneInfo(os.environ.get("PLANTS_TZ", "America/Los_Angeles"))
+SWAP_SECONDS = float(os.environ.get("PLANTS_SWAP", "6"))  # seconds per group in the single view
 
 
 def _parse_date(s) -> date | None:
@@ -38,6 +39,8 @@ class PlantApp(LedApp):
     def __init__(self) -> None:
         self.rain: RainClient | None = None
         self._last_rain: date | None = None
+        self._swap_anchor = 0.0   # phase origin for the indoor<->outdoor swap
+        self._last_tick = 0.0
 
     def default_config(self) -> dict:
         return {
@@ -50,10 +53,9 @@ class PlantApp(LedApp):
         }
 
     def views(self) -> list[ViewSpec]:
-        return [
-            ViewSpec(id="indoor", label="Indoor Plants"),
-            ViewSpec(id="outdoor", label="Outdoor Plants"),
-        ]
+        # One view; the plugin cycles indoor <-> outdoor within it (each group keeps
+        # its own counter), reusing the full-panel per-group render.
+        return [ViewSpec(id="main", label="Plant Watering")]
 
     async def start(self) -> None:
         self.rain = RainClient()
@@ -77,7 +79,14 @@ class PlantApp(LedApp):
 
     async def render(self, ctx: RenderContext) -> Image.Image:
         cfg = ctx.config or {}
-        group = "outdoor" if ctx.view == "outdoor" else "indoor"
+        # Alternate indoor -> outdoor within the single view. Restart at indoor on
+        # (re)entry so a carousel visit always shows both groups in order.
+        if ctx.tick - self._last_tick > 2.0:
+            self._swap_anchor = ctx.tick
+        self._last_tick = ctx.tick
+        phase = (ctx.tick - self._swap_anchor) % (2 * SWAP_SECONDS)
+        group = "indoor" if phase < SWAP_SECONDS else "outdoor"
+
         if group == "outdoor" and self.rain is not None:
             try:
                 self._last_rain = await self.rain.last_rain_date(
@@ -89,6 +98,10 @@ class PlantApp(LedApp):
         remaining, rain_fed = self._remaining(cfg, group)
         interval = int(cfg.get(f"{group}_interval", 7 if group == "indoor" else 4))
         return render_group(group, remaining, interval, rain_fed, ctx.tick)
+
+    def view_cycle_seconds(self, view_id: str, config: dict) -> float | None:
+        # Dwell long enough for the carousel to show both groups (one swap each).
+        return 2 * SWAP_SECONDS
 
     def admin_router(self):
         """POST /admin/apps/plants/watered  (form: group=indoor|outdoor) — stamp
