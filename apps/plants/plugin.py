@@ -4,14 +4,15 @@ Two groups, each a view: indoor plants (water every N days) and outdoor plants
 (same, but recent rain at your location counts as a watering, so the clock resets
 to the last rain day). The days-until-water goes negative when overdue.
 
-"I watered them" = stamp today's date for a group; a POST route (admin_router) does
-that, so the admin UI can offer a per-group button. Data/config/lifecycle live here
-(lead-owned); pixel layout lives in render.py (UI-owned).
+"I watered them" = reset a group's counter, either to the full interval (today) or to
+an explicit day count (overwatered? push it out further); a POST route (admin_router)
+does that, so the admin UI can offer per-group controls. Data/config/lifecycle live
+here (lead-owned); pixel layout lives in render.py (UI-owned).
 """
 from __future__ import annotations
 
 import os
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from PIL import Image
@@ -24,6 +25,10 @@ from .render import render_group
 TZ = ZoneInfo(os.environ.get("PLANTS_TZ", "America/Los_Angeles"))
 SWAP_SECONDS = float(os.environ.get("PLANTS_SWAP", "6"))  # seconds per group in the single view
 FADE_SECONDS = 0.8  # gentle cross-fade into the next group at each swap
+DEFAULT_DAYS = {
+    "indoor": int(os.environ.get("PLANTS_INDOOR_DAYS", "6")),
+    "outdoor": int(os.environ.get("PLANTS_OUTDOOR_DAYS", "5")),
+}
 
 
 def _parse_date(s) -> date | None:
@@ -45,8 +50,8 @@ class PlantApp(LedApp):
 
     def default_config(self) -> dict:
         return {
-            "indoor_interval": int(os.environ.get("PLANTS_INDOOR_DAYS", "7")),
-            "outdoor_interval": int(os.environ.get("PLANTS_OUTDOOR_DAYS", "4")),
+            "indoor_interval": DEFAULT_DAYS["indoor"],
+            "outdoor_interval": DEFAULT_DAYS["outdoor"],
             "indoor_watered": "",   # ISO date "YYYY-MM-DD"; empty = assume today
             "outdoor_watered": "",
             "place": os.environ.get("PLANTS_PLACE", os.environ.get("WEATHER_PLACE", "San Francisco")),
@@ -69,7 +74,7 @@ class PlantApp(LedApp):
         """(days_until_water, rain_fed). Negative days == overdue. For outdoor, the
         reference watering is the later of the manual date and the last rain day."""
         today = datetime.now(TZ).date()
-        interval = int(cfg.get(f"{group}_interval", 7 if group == "indoor" else 4))
+        interval = int(cfg.get(f"{group}_interval", DEFAULT_DAYS[group]))
         watered = _parse_date(cfg.get(f"{group}_watered")) or today
         rain_fed = False
         if group == "outdoor" and self._last_rain and self._last_rain > watered:
@@ -80,7 +85,7 @@ class PlantApp(LedApp):
 
     def _frame(self, cfg: dict, group: str, tick: float) -> Image.Image:
         remaining, rain_fed = self._remaining(cfg, group)
-        interval = int(cfg.get(f"{group}_interval", 7 if group == "indoor" else 4))
+        interval = int(cfg.get(f"{group}_interval", DEFAULT_DAYS[group]))
         return render_group(group, remaining, interval, rain_fed, tick)
 
     async def render(self, ctx: RenderContext) -> Image.Image:
@@ -118,9 +123,16 @@ class PlantApp(LedApp):
         return 2 * SWAP_SECONDS
 
     def admin_router(self):
-        """POST /admin/apps/plants/watered  (form: group=indoor|outdoor) — stamp
-        today's date for that group, resetting its counter. The admin template adds
-        the buttons (UI-owned); this is the backend they hit."""
+        """POST /admin/apps/plants/watered  (form: group=indoor|outdoor, days=optional) —
+        reset that group's counter. Blank `days` = watered today (counter goes back to
+        the full interval, e.g. 6 for indoor). A `days` value sets the countdown to
+        exactly that number instead — e.g. overwatered indoors, so you want 8 days
+        before the next reminder rather than the usual 6.
+
+        There's no separate "days remaining" field in storage; we back-solve a
+        `{group}_watered` date that makes `interval - days_since == days` (see
+        PlantApp._remaining), so a target beyond the interval lands on a watered date
+        in the future. That's an implementation detail, not a real watering event."""
         from fastapi import APIRouter, Form
         from fastapi.responses import RedirectResponse
 
@@ -129,9 +141,17 @@ class PlantApp(LedApp):
         router = APIRouter()
 
         @router.post("/watered")
-        def watered(group: str = Form("indoor")) -> RedirectResponse:
-            key = "outdoor_watered" if group == "outdoor" else "indoor_watered"
-            ControllerState().set_config("plants", {key: datetime.now(TZ).date().isoformat()})
+        def watered(group: str = Form("indoor"), days: str = Form("")) -> RedirectResponse:
+            group = "outdoor" if group == "outdoor" else "indoor"
+            cfg = ControllerState().config_for("plants")
+            interval = int(cfg.get(f"{group}_interval", DEFAULT_DAYS[group]))
+            try:
+                target = int(days)
+            except (TypeError, ValueError):
+                target = interval  # blank/invalid -> plain "watered today" reset
+            watered_date = datetime.now(TZ).date() - timedelta(days=interval - target)
+            key = f"{group}_watered"
+            ControllerState().set_config("plants", {key: watered_date.isoformat()})
             return RedirectResponse("/admin", status_code=303)
 
         return router

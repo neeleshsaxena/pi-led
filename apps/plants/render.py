@@ -35,6 +35,14 @@ from pi_led_core.canvas import (
     scale_color,
 )
 
+# Per-group identity color for the header label + underline (which plant group
+# you're looking at) — kept separate from the mood accent (how urgent), and
+# matched to the admin UI's indoor/outdoor button colors for a consistent cue.
+GROUP_ACCENT = {
+    "indoor": (60, 216, 190),   # teal / greenhouse
+    "outdoor": (99, 177, 255),  # sky blue / rain
+}
+
 # Soft, warm palette — nothing alarm-red. A thirsty plant reads as amber/olive.
 POT = (198, 108, 66)          # terracotta
 POT_HI = (226, 138, 96)       # sunlit side of the pot
@@ -133,8 +141,9 @@ def render_group(group, remaining, interval, rain_fed, tick=0.0):
     img = new_canvas()
     draw = ImageDraw.Draw(img)
     label = "OUTDOOR" if group == "outdoor" else "INDOOR"
-    draw_px_centered(draw, 1, label, fill=scale_color(LEAF, 0.95), size=PX_SMALL)
-    filled_rect(draw, 6, 9, WIDTH - 7, 9, scale_color(LEAF, 0.5))
+    group_accent = GROUP_ACCENT[group]
+    draw_px_centered(draw, 1, label, fill=scale_color(group_accent, 0.95), size=PX_SMALL)
+    filled_rect(draw, 6, 9, WIDTH - 7, 9, scale_color(group_accent, 0.5))
 
     mood, accent, status = _mood(remaining)
     num = str(remaining)
