@@ -30,6 +30,7 @@ DEFAULT_VIEWS = [
     "weather:current",
     "weather:forecast",
     "plants:main",
+    "reminders:main",
     "clock:digital",
     "messages:main",
     "ambient:starfield",

@@ -8,6 +8,7 @@ from .carousel import CarouselApp
 from .clock import ClockApp
 from .messages import MessagesApp
 from .plants import PlantApp
+from .reminders import ReminderApp
 from .weather import WeatherApp
 from .worldcup import WorldCupApp
 
@@ -20,4 +21,5 @@ ALL_APPS = [
     AmbientApp(),
     BirthdayApp(),
     PlantApp(),
+    ReminderApp(),
 ]
