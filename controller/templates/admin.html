@@ -101,6 +101,19 @@
       background: linear-gradient(180deg, #ffa04d, var(--accent)); box-shadow: 0 6px 16px rgba(255,122,24,.32); }
     .cta:active { transform: translateY(1px); box-shadow: 0 3px 10px rgba(255,122,24,.3); }
 
+    /* plants — watering reset (green "watered" variant of the CTA) */
+    .waterbtns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .waterbtns form { margin: 0; }
+    .cta.water { min-height: 50px; font-size: .98rem; margin-top: 0; }
+    /* distinct per group: indoor = teal (greenhouse), outdoor = sky blue (rain) */
+    .cta.indoor { color: #032420; background: linear-gradient(180deg, #45d8c6, #17a596);
+      box-shadow: 0 6px 16px rgba(23,165,150,.32); }
+    .cta.indoor:active { box-shadow: 0 3px 10px rgba(23,165,150,.30); }
+    .cta.outdoor { color: #04121f; background: linear-gradient(180deg, #63b1ff, #2f7fe0);
+      box-shadow: 0 6px 16px rgba(47,127,224,.32); }
+    .cta.outdoor:active { box-shadow: 0 3px 10px rgba(47,127,224,.30); }
+    .hint { margin: 12px 0 0; font-size: .74rem; color: var(--muted); text-align: center; }
+
     footer { color: var(--muted); font-size: .74rem; text-align: center; }
     footer a { color: var(--blue); text-decoration: none; }
     /* Color + Animation stack vertically — bulletproof on any phone width. */
@@ -180,6 +193,22 @@
 
         <button type="submit" name="activate" value="1" class="cta">Save &amp; show</button>
       </form>
+    </div>
+
+    <!-- PLANTS — watering reset -->
+    <div class="card">
+      <h2>Plants</h2>
+      <div class="waterbtns">
+        <form method="post" action="/admin/apps/plants/watered">
+          <input type="hidden" name="group" value="indoor" />
+          <button type="submit" class="cta water indoor">💧 Watered indoor</button>
+        </form>
+        <form method="post" action="/admin/apps/plants/watered">
+          <input type="hidden" name="group" value="outdoor" />
+          <button type="submit" class="cta water outdoor">💧 Watered outdoor</button>
+        </form>
+      </div>
+      <p class="hint">Resets that group’s timer to today.</p>
     </div>
 
     <footer><a href="/preview">Open full preview →</a></footer>
