@@ -102,9 +102,15 @@
     .cta:active { transform: translateY(1px); box-shadow: 0 3px 10px rgba(255,122,24,.3); }
 
     /* plants — watering reset (green "watered" variant of the CTA) */
-    .waterbtns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-    .waterbtns form { margin: 0; }
-    .cta.water { min-height: 50px; font-size: .98rem; margin-top: 0; }
+    .waterrows { display: flex; flex-direction: column; gap: 10px; }
+    .waterrow { margin: 0; display: flex; align-items: center; gap: 10px; }
+    .wlabel { flex: 0 0 56px; font-size: .85rem; font-weight: 600; }
+    .wlabel.indoor { color: #45d8c6; }
+    .wlabel.outdoor { color: #63b1ff; }
+    .wdays { flex: 0 0 62px; width: 62px; padding: 12px 8px; background: #0c0d11; border: 1px solid var(--border);
+      border-radius: 11px; color: var(--text); font: inherit; font-size: 1rem; text-align: center; }
+    .wdays:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(255,122,24,.18); }
+    .cta.water { flex: 1 1 auto; min-height: 50px; font-size: .98rem; margin-top: 0; }
     /* distinct per group: indoor = teal (greenhouse), outdoor = sky blue (rain) */
     .cta.indoor { color: #032420; background: linear-gradient(180deg, #45d8c6, #17a596);
       box-shadow: 0 6px 16px rgba(23,165,150,.32); }
@@ -198,17 +204,19 @@
     <!-- PLANTS — watering reset -->
     <div class="card">
       <h2>Plants</h2>
-      <div class="waterbtns">
-        <form method="post" action="/admin/apps/plants/watered">
-          <input type="hidden" name="group" value="indoor" />
-          <button type="submit" class="cta water indoor">💧 Watered indoor</button>
+      <div class="waterrows">
+        <form method="post" action="/admin/apps/plants/watered" class="waterrow">
+          <span class="wlabel indoor">Indoor</span>
+          <input type="number" name="days" min="0" max="60" inputmode="numeric" placeholder="6" class="wdays" />
+          <button type="submit" name="group" value="indoor" class="cta water indoor">💧 Reset</button>
         </form>
-        <form method="post" action="/admin/apps/plants/watered">
-          <input type="hidden" name="group" value="outdoor" />
-          <button type="submit" class="cta water outdoor">💧 Watered outdoor</button>
+        <form method="post" action="/admin/apps/plants/watered" class="waterrow">
+          <span class="wlabel outdoor">Outdoor</span>
+          <input type="number" name="days" min="0" max="60" inputmode="numeric" placeholder="5" class="wdays" />
+          <button type="submit" name="group" value="outdoor" class="cta water outdoor">💧 Reset</button>
         </form>
       </div>
-      <p class="hint">Resets that group’s timer to today.</p>
+      <p class="hint">Blank = watered today (full interval). Or enter a day count — e.g. overwatered indoors, enter 8.</p>
     </div>
 
     <footer><a href="/preview">Open full preview →</a></footer>
