@@ -23,6 +23,7 @@ from .render import render_group
 
 TZ = ZoneInfo(os.environ.get("PLANTS_TZ", "America/Los_Angeles"))
 SWAP_SECONDS = float(os.environ.get("PLANTS_SWAP", "6"))  # seconds per group in the single view
+FADE_SECONDS = 0.8  # gentle cross-fade into the next group at each swap
 
 
 def _parse_date(s) -> date | None:
@@ -77,6 +78,11 @@ class PlantApp(LedApp):
         days_since = (today - watered).days
         return interval - days_since, rain_fed
 
+    def _frame(self, cfg: dict, group: str, tick: float) -> Image.Image:
+        remaining, rain_fed = self._remaining(cfg, group)
+        interval = int(cfg.get(f"{group}_interval", 7 if group == "indoor" else 4))
+        return render_group(group, remaining, interval, rain_fed, tick)
+
     async def render(self, ctx: RenderContext) -> Image.Image:
         cfg = ctx.config or {}
         # Alternate indoor -> outdoor within the single view. Restart at indoor on
@@ -86,8 +92,13 @@ class PlantApp(LedApp):
         self._last_tick = ctx.tick
         phase = (ctx.tick - self._swap_anchor) % (2 * SWAP_SECONDS)
         group = "indoor" if phase < SWAP_SECONDS else "outdoor"
+        into = SWAP_SECONDS - (phase % SWAP_SECONDS)   # seconds until the next swap
+        fading = into < FADE_SECONDS
+        other = "outdoor" if group == "indoor" else "indoor"
 
-        if group == "outdoor" and self.rain is not None:
+        # Refresh outdoor rain (cached, best-effort) whenever outdoor is on screen —
+        # the current group, or the one we're cross-fading into.
+        if self.rain is not None and (group == "outdoor" or fading):
             try:
                 self._last_rain = await self.rain.last_rain_date(
                     str(cfg.get("place", "San Francisco")),
@@ -95,9 +106,12 @@ class PlantApp(LedApp):
                 )
             except Exception:  # noqa: BLE001 - rain lookup is best-effort
                 pass
-        remaining, rain_fed = self._remaining(cfg, group)
-        interval = int(cfg.get(f"{group}_interval", 7 if group == "indoor" else 4))
-        return render_group(group, remaining, interval, rain_fed, ctx.tick)
+
+        cur = self._frame(cfg, group, ctx.tick)
+        if fading:  # gently dissolve into the next group over the last FADE_SECONDS
+            nxt = self._frame(cfg, other, ctx.tick)
+            return Image.blend(cur, nxt, (FADE_SECONDS - into) / FADE_SECONDS)
+        return cur
 
     def view_cycle_seconds(self, view_id: str, config: dict) -> float | None:
         # Dwell long enough for the carousel to show both groups (one swap each).
