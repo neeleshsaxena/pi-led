@@ -5,6 +5,13 @@ status line, and a potted plant whose mood tracks how thirsty it is — perky wi
 a little bloom when it's happy, softly drooping when it wants a drink. Outdoor
 frames show a rain-cloud + "RAIN-FED" when recent rain reset the clock.
 
+Everything but the plant itself carries a per-group color identity: indoor is a
+warm magenta/pink "grow-light" theme, outdoor a cool cyan/blue "night sky" theme —
+label + sweeping underline, twinkling accents, tinted water droplets, a purple/blue
+"N DAYS LEFT" accent, a rainbow "RAIN-FED" flourish. The plant (pot/soil/leaves/
+bloom) stays the same mood-driven green/olive regardless of group. No background
+wash — a colored fill behind the pixel font read badly on the real HUB75 panel.
+
 Deliberately gentle: no alarm-red, no "OVERDUE!" — an overdue plant just looks a
 little thirsty and asks nicely, in warm amber. Entry point:
     render_group(group, remaining, interval, rain_fed, tick)
@@ -17,10 +24,13 @@ import math
 from PIL import ImageDraw
 
 from pi_led_core.canvas import (
+    BLUE,
     CYAN,
-    GRAY,
     GREEN,
     LIME,
+    MAGENTA,
+    PINK,
+    PURPLE,
     PX_BIG,
     PX_HUGE,
     PX_SMALL,
@@ -30,27 +40,46 @@ from pi_led_core.canvas import (
     draw_micro_centered,
     draw_px_centered,
     filled_rect,
+    lerp_color,
     new_canvas,
     pulse_color,
+    rainbow,
     scale_color,
+    sparkle,
+    sweep_hbar,
 )
 
-# Per-group identity color for the header label + underline (which plant group
-# you're looking at) — kept separate from the mood accent (how urgent), and
-# matched to the admin UI's indoor/outdoor button colors for a consistent cue.
-GROUP_ACCENT = {
-    "indoor": (60, 216, 190),   # teal / greenhouse
-    "outdoor": (99, 177, 255),  # sky blue / rain
+# Per-group color identity for everything except the plant itself: header label
+# + underline, twinkles, and the water droplet/raincloud tint. Indoor reads warm
+# (grow-light magenta/pink); outdoor reads cool (night-sky cyan/blue) — a glance
+# at the color alone tells you which group is on screen. (No background wash —
+# a colored fill behind the pixel font read badly on the actual HUB75 panel.)
+GROUP_THEME = {
+    "indoor": {
+        "label": MAGENTA,
+        "underline": PINK,
+        "sparkle": (MAGENTA, PINK, PURPLE),
+        "water": (255, 132, 188),   # warm rosy droplet
+        "happy": PURPLE,            # "N DAYS LEFT" number/status when plenty of time is left
+    },
+    "outdoor": {
+        "label": CYAN,
+        "underline": BLUE,
+        "sparkle": (BLUE, CYAN, WHITE),
+        "water": (92, 196, 255),    # cool sky droplet
+        "happy": BLUE,
+    },
 }
 
 # Soft, warm palette — nothing alarm-red. A thirsty plant reads as amber/olive.
+# (This part IS the plant — pot/soil/leaves/bloom — and stays the same regardless
+# of group; only the water droplet's tint comes from GROUP_THEME above.)
 POT = (198, 108, 66)          # terracotta
 POT_HI = (226, 138, 96)       # sunlit side of the pot
 SOIL = (96, 60, 40)
 LEAF = (66, 206, 104)         # healthy green
 LEAF_DRY = (150, 168, 92)     # thirsty: desaturated olive
 AMBER = (240, 172, 78)        # gentle "needs a drink" accent (not red)
-WATER = (82, 174, 240)
 BLOOM = (255, 138, 180)       # flower petals
 BLOOM_C = (255, 214, 96)      # flower center
 SKY = (168, 190, 216)
@@ -78,7 +107,7 @@ def _pot(draw, cx: int, by: int) -> int:
     return top
 
 
-def _plant(draw, cx: int, by: int, mood: str, tick: float) -> None:
+def _plant(draw, cx: int, by: int, mood: str, tick: float, water_color) -> None:
     """A charming potted plant whose posture reflects `mood`."""
     sy = _pot(draw, cx, by)
     color = LEAF_DRY if mood == "thirsty" else LEAF
@@ -107,7 +136,7 @@ def _plant(draw, cx: int, by: int, mood: str, tick: float) -> None:
     if mood == "due":
         # a single droplet drifts down toward the soil — "ready for a drink"
         dy = int((tick * 12) % 22)
-        _droplet(draw, cx, sy - 18 + dy, WATER)
+        _droplet(draw, cx, sy - 18 + dy, water_color)
 
 
 def _droplet(draw, x: int, y: int, color) -> None:
@@ -115,12 +144,13 @@ def _droplet(draw, x: int, y: int, color) -> None:
     draw.ellipse([x - 2, y, x + 2, y + 3], fill=color)
 
 
-def _raincloud(draw, x: int, y: int, tick: float) -> None:
-    draw.ellipse([x - 6, y - 3, x + 6, y + 3], fill=SKY)
-    draw.ellipse([x - 3, y - 5, x + 4, y + 2], fill=scale_color(SKY, 1.12))
+def _raincloud(draw, x: int, y: int, tick: float, tint, water_color) -> None:
+    cloud = lerp_color(SKY, tint, 0.35)
+    draw.ellipse([x - 6, y - 3, x + 6, y + 3], fill=cloud)
+    draw.ellipse([x - 3, y - 5, x + 4, y + 2], fill=scale_color(cloud, 1.2))
     for i, dx in enumerate(range(-4, 5, 3)):
         off = int((tick * 10 + i * 3) % 6)
-        draw.line([(x + dx, y + 4 + off), (x + dx, y + 6 + off)], fill=WATER)
+        draw.line([(x + dx, y + 4 + off), (x + dx, y + 6 + off)], fill=water_color)
 
 
 # ── view ──────────────────────────────────────────────────────────────────────
@@ -138,14 +168,19 @@ def _mood(remaining: int):
 
 
 def render_group(group, remaining, interval, rain_fed, tick=0.0):
+    theme = GROUP_THEME[group]
     img = new_canvas()
     draw = ImageDraw.Draw(img)
+
     label = "OUTDOOR" if group == "outdoor" else "INDOOR"
-    group_accent = GROUP_ACCENT[group]
-    draw_px_centered(draw, 1, label, fill=scale_color(group_accent, 0.95), size=PX_SMALL)
-    filled_rect(draw, 6, 9, WIDTH - 7, 9, scale_color(group_accent, 0.5))
+    draw_px_centered(draw, 1, label, fill=theme["label"], size=PX_SMALL)
+    sweep_hbar(draw, 6, WIDTH - 7, 9, theme["underline"], tick, period=3.0, band=16, hi=0.9)
+    sparkle(draw, tick, count=5, seed=(1 if group == "indoor" else 2),
+            colors=theme["sparkle"], box=(2, 0, WIDTH - 2, 8))
 
     mood, accent, status = _mood(remaining)
+    if mood == "happy":
+        accent = theme["happy"]  # group-tinted instead of flat green (blends into the plant otherwise)
     num = str(remaining)
     # thirsty number breathes softly in warm amber — a gentle nudge, never a klaxon
     num_col = pulse_color(AMBER, tick, period=1.8, min_factor=0.62) if mood == "thirsty" else accent
@@ -153,9 +188,9 @@ def render_group(group, remaining, interval, rain_fed, tick=0.0):
     draw_px_centered(draw, 12 if one else 15, num, fill=num_col, size=PX_HUGE if one else PX_BIG)
     draw_px_centered(draw, 35, status, fill=scale_color(accent, 0.95), size=PX_SMALL)
 
-    _plant(draw, WIDTH // 2, 63, mood, tick)
+    _plant(draw, WIDTH // 2, 63, mood, tick, theme["water"])
 
     if group == "outdoor" and rain_fed:
-        _raincloud(draw, WIDTH - 12, 20, tick)
-        draw_micro_centered(draw, 45, "RAIN-FED", fill=CYAN)
+        _raincloud(draw, WIDTH - 12, 20, tick, theme["underline"], theme["water"])
+        draw_micro_centered(draw, 45, "RAIN-FED", fill=rainbow(tick, period=2.5))
     return img
