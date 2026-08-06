@@ -1,19 +1,20 @@
 """Plant watering reminder — pixel rendering (UI-owned).
 
-One group per frame (indoor / outdoor): a big days-until-water number, a gentle
-status line, and a potted plant whose mood tracks how thirsty it is — perky with
-a little bloom when it's happy, softly drooping when it wants a drink. Outdoor
-frames show a rain-cloud + "RAIN-FED" when recent rain reset the clock.
+One group per frame (indoor / outdoor): a potted plant front-and-center whose mood
+tracks how thirsty it is — perky with a little bloom when it's happy, softly
+drooping when it wants a drink — with a small, soft two-line caption below it
+("WATER ME" / "IN 6 DAYS") instead of a shouty giant number. Outdoor frames show
+a rain-cloud + "RAIN-FED" when recent rain reset the clock.
 
 Everything but the plant itself carries a per-group color identity: indoor is a
-warm magenta/pink "grow-light" theme, outdoor a cool cyan/blue "night sky" theme —
-label + sweeping underline, twinkling accents, tinted water droplets, a purple/blue
-"N DAYS LEFT" accent, a rainbow "RAIN-FED" flourish. The plant (pot/soil/leaves/
-bloom) stays the same mood-driven green/olive regardless of group. No background
-wash — a colored fill behind the pixel font read badly on the real HUB75 panel.
+warm magenta/pink "grow-light" theme, outdoor a red "sunset" theme — header label
++ sweeping underline, twinkling accents, tinted water droplets. The plant (pot/
+soil/leaves/bloom) stays the same mood-driven green/olive regardless of group. No
+background wash — a colored fill behind the pixel font read badly on the real
+HUB75 panel.
 
-Deliberately gentle: no alarm-red, no "OVERDUE!" — an overdue plant just looks a
-little thirsty and asks nicely, in warm amber. Entry point:
+Deliberately gentle even when overdue: no huge pulsing number, no "-1!!!" — a
+late plant just says "N days ago" in a small, calm, static caption. Entry point:
     render_group(group, remaining, interval, rain_fed, tick)
 `remaining` = interval - days_since_watered (>0 days left, 0 due today, <0 past).
 """
@@ -24,26 +25,21 @@ import math
 from PIL import ImageDraw
 
 from pi_led_core.canvas import (
-    BLUE,
-    CYAN,
     GREEN,
     LIME,
     MAGENTA,
     PINK,
     PURPLE,
-    PX_BIG,
-    PX_HUGE,
     PX_SMALL,
+    RED,
     WHITE,
     WIDTH,
     YELLOW,
-    draw_micro_centered,
     draw_px_centered,
     filled_rect,
     lerp_color,
     new_canvas,
     pulse_color,
-    rainbow,
     scale_color,
     sparkle,
     sweep_hbar,
@@ -51,23 +47,24 @@ from pi_led_core.canvas import (
 
 # Per-group color identity for everything except the plant itself: header label
 # + underline, twinkles, and the water droplet/raincloud tint. Indoor reads warm
-# (grow-light magenta/pink); outdoor reads cool (night-sky cyan/blue) — a glance
-# at the color alone tells you which group is on screen. (No background wash —
-# a colored fill behind the pixel font read badly on the actual HUB75 panel.)
+# (grow-light magenta/pink); outdoor reads red (a deliberate, requested change —
+# no longer the earlier "no alarm-red" cyan/blue). A glance at the color alone
+# tells you which group is on screen. No background wash — a colored fill behind
+# the pixel font read badly on the actual HUB75 panel.
 GROUP_THEME = {
     "indoor": {
         "label": MAGENTA,
         "underline": PINK,
         "sparkle": (MAGENTA, PINK, PURPLE),
         "water": (255, 132, 188),   # warm rosy droplet
-        "happy": PURPLE,            # "N DAYS LEFT" number/status when plenty of time is left
+        "happy": PURPLE,            # caption color when plenty of time is left
     },
     "outdoor": {
-        "label": CYAN,
-        "underline": BLUE,
-        "sparkle": (BLUE, CYAN, WHITE),
-        "water": (92, 196, 255),    # cool sky droplet
-        "happy": BLUE,
+        "label": RED,
+        "underline": (255, 84, 64),   # lighter red so the sweep highlight still pops
+        "sparkle": (RED, (255, 84, 64), (255, 150, 128)),
+        "water": (255, 110, 88),      # warm coral-red droplet
+        "happy": RED,
     },
 }
 
@@ -157,14 +154,26 @@ def _raincloud(draw, x: int, y: int, tick: float, tint, water_color) -> None:
 
 
 def _mood(remaining: int):
-    """Map days-left to (mood, accent color, gentle status word)."""
+    """Map days-left to (mood, accent color)."""
     if remaining < 0:
-        return "thirsty", AMBER, "THIRSTY"
+        return "thirsty", AMBER
     if remaining == 0:
-        return "due", YELLOW, "WATER TODAY"
+        return "due", YELLOW
     if remaining <= 2:
-        return "ok", LIME, "WATER SOON"
-    return "happy", GREEN, ("DAYS LEFT" if remaining != 1 else "DAY LEFT")
+        return "ok", LIME
+    return "happy", GREEN
+
+
+def _caption(remaining: int) -> tuple[str, str]:
+    """Two soft, calm lines — no minus signs, no exclamation points. A plant that
+    wanted water 1 day ago just says so, same size and tone as one that's fine."""
+    n = abs(remaining)
+    if remaining == 0:
+        return "WATER ME", "TODAY"
+    unit = "DAY" if n == 1 else "DAYS"
+    if remaining > 0:
+        return "WATER ME", f"IN {remaining} {unit}"
+    return "WATER ME", f"{n} {unit} AGO"
 
 
 def render_group(group, remaining, interval, rain_fed, tick=0.0):
@@ -178,19 +187,22 @@ def render_group(group, remaining, interval, rain_fed, tick=0.0):
     sparkle(draw, tick, count=5, seed=(1 if group == "indoor" else 2),
             colors=theme["sparkle"], box=(2, 0, WIDTH - 2, 8))
 
-    mood, accent, status = _mood(remaining)
+    mood, accent = _mood(remaining)
     if mood == "happy":
         accent = theme["happy"]  # group-tinted instead of flat green (blends into the plant otherwise)
-    num = str(remaining)
-    # thirsty number breathes softly in warm amber — a gentle nudge, never a klaxon
-    num_col = pulse_color(AMBER, tick, period=1.8, min_factor=0.62) if mood == "thirsty" else accent
-    one = len(num) == 1
-    draw_px_centered(draw, 12 if one else 15, num, fill=num_col, size=PX_HUGE if one else PX_BIG)
-    draw_px_centered(draw, 35, status, fill=scale_color(accent, 0.95), size=PX_SMALL)
 
-    _plant(draw, WIDTH // 2, 63, mood, tick, theme["water"])
+    # the plant is the hero, centered in the frame — not docked to the bottom
+    _plant(draw, WIDTH // 2, 44, mood, tick, theme["water"])
+
+    # small, calm, static caption below it — no huge pulsing digits
+    cap1, cap2 = _caption(remaining)
+    cap_col = scale_color(accent, 0.82)
+    draw_px_centered(draw, 47, cap1, fill=cap_col, size=PX_SMALL)
+    draw_px_centered(draw, 56, cap2, fill=cap_col, size=PX_SMALL)
 
     if group == "outdoor" and rain_fed:
-        _raincloud(draw, WIDTH - 12, 20, tick, theme["underline"], theme["water"])
-        draw_micro_centered(draw, 45, "RAIN-FED", fill=rainbow(tick, period=2.5))
+        # top-right corner only — the centered plant now owns the middle of the
+        # frame, so there's no room for a "RAIN-FED" caption without it crowding
+        # the bloom; the animated cloud alone reads fine on its own.
+        _raincloud(draw, WIDTH - 10, 14, tick, theme["underline"], theme["water"])
     return img
