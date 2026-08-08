@@ -45,6 +45,15 @@ def _as_list(x) -> list:
     return x if isinstance(x, list) else [x]
 
 
+def _clean_dest(name: str) -> str:
+    """Caltrain destinations arrive verbose, e.g. 'San Francisco Caltrain Station
+    Northbound' — trim the boilerplate down to the place name."""
+    s = " ".join((name or "").split())
+    for junk in (" Caltrain Station", " Caltrain", " Station", " Northbound", " Southbound"):
+        s = s.replace(junk, "")
+    return s.strip()
+
+
 class TransitClient:
     def __init__(self, timeout: float = 8.0, ttl: float = 120.0):
         self._client = httpx.AsyncClient(
@@ -87,7 +96,7 @@ class TransitClient:
             out.append(
                 {
                     "line": str(j.get("PublishedLineName") or j.get("LineRef") or "").strip(),
-                    "dest": str(j.get("DestinationName") or "").strip(),
+                    "dest": _clean_dest(str(j.get("DestinationName") or "")),
                     "direction": str(j.get("DirectionRef") or "").strip().upper(),
                     "expected": expected,
                     "aimed": aimed,

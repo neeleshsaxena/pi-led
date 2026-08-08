@@ -90,11 +90,15 @@ def render_transit(board, has_key=True, tick=0.0):
         mc = _min_color(int(first["minutes"]), bool(first.get("delayed")))
         draw_px(draw, (WIDTH - px_text_width(mt, PX_SMALL) - 1, y), mt, fill=mc, size=PX_SMALL)
 
-        # destination under the label; second departure small on the right
+        # route# + destination under the label; second departure small on the right.
+        # Only short line ids (bus route numbers like "292"/"ECR") are worth
+        # prefixing — Caltrain's line is a long service name ("Local Weekday").
+        line = str(first.get("line", "")).strip().upper()
         dest = str(first.get("dest", "")).upper()
-        if dest:
-            dest = dest[:10]
-            draw_micro(draw, (2, y + 8), dest, fill=scale_color(WHITE, 0.7))
+        dest_txt = (f"{line} {dest}" if 0 < len(line) <= 4 else dest).strip()
+        if dest_txt:
+            dest_txt = dest_txt[:11]
+            draw_micro(draw, (2, y + 8), dest_txt, fill=scale_color(WHITE, 0.7))
         if len(deps) > 1:
             nxt = f"+{int(deps[1]['minutes'])}"
             draw_micro(
