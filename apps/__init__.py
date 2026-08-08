@@ -10,6 +10,7 @@ from .messages import MessagesApp
 from .news import NewsApp
 from .plants import PlantApp
 from .reminders import ReminderApp
+from .transit import TransitApp
 from .weather import WeatherApp
 from .worldcup import WorldCupApp
 
@@ -24,4 +25,5 @@ ALL_APPS = [
     PlantApp(),
     ReminderApp(),
     NewsApp(),
+    TransitApp(),
 ]
