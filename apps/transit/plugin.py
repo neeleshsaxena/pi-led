@@ -93,6 +93,7 @@ class TransitApp(LedApp):
                 rows.append(
                     {
                         "line": d["line"],
+                        "train": d.get("train", ""),
                         "dest": d["dest"],
                         "direction": d["direction"],
                         "minutes": m,

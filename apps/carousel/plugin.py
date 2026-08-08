@@ -31,6 +31,7 @@ DEFAULT_VIEWS = [
     "weather:forecast",
     "transit:main",
     "traffic:main",
+    "traffic:commute",
     "plants:main",
     "reminders:main",
     "clock:digital",

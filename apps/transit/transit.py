@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from datetime import datetime, timezone
 
@@ -46,9 +47,10 @@ def _as_list(x) -> list:
 
 
 def _clean_dest(name: str) -> str:
-    """Caltrain destinations arrive verbose, e.g. 'San Francisco Caltrain Station
-    Northbound' — trim the boilerplate down to the place name."""
+    """Destinations arrive verbose — Caltrain 'San Francisco Caltrain Station
+    Northbound', bus 'Mission St & 1st St (Northbound)'. Trim the boilerplate."""
     s = " ".join((name or "").split())
+    s = re.sub(r"\s*\([^)]*\)", "", s)  # drop "(Northbound)" etc.
     for junk in (" Caltrain Station", " Caltrain", " Station", " Northbound", " Southbound"):
         s = s.replace(junk, "")
     return s.strip()
@@ -93,9 +95,14 @@ class TransitClient:
             )
             if expected is None:
                 continue
+            framed = j.get("FramedVehicleJourneyRef") or {}
+            train = str(framed.get("DatedVehicleJourneyRef") or j.get("VehicleRef") or "").strip()
             out.append(
                 {
-                    "line": str(j.get("PublishedLineName") or j.get("LineRef") or "").strip(),
+                    # LineRef is the short code (bus "ECR"/"292", Caltrain service
+                    # name "Local Weekend"); prefer it over the verbose display name.
+                    "line": str(j.get("LineRef") or j.get("PublishedLineName") or "").strip(),
+                    "train": train,  # Caltrain train #, e.g. "631"
                     "dest": _clean_dest(str(j.get("DestinationName") or "")),
                     "direction": str(j.get("DirectionRef") or "").strip().upper(),
                     "expected": expected,

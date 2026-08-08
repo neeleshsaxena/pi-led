@@ -1,13 +1,14 @@
 """Transit departures — pixel rendering (functional scaffold; UI polish TBD).
 
 A small departures board: a "DEPARTURES" header, then one block per configured
-stop showing its label, the next train/bus destination, and a big "minutes until"
-countdown (green when imminent, red when the trip is running late). A second
-upcoming departure is shown small beneath. No key / no service get quiet hints.
+stop. Each block has a bright label line (stop in agency color + a big minute
+countdown, green when imminent / red when late) and a detail line beneath — the
+Caltrain train number + service, or the bus route + destination. No key / no
+service get quiet hints.
 
 Entry point: render_transit(board, has_key, tick). `board` is a list of
     {"label": str, "agency": str, "departures": [
-        {"line": str, "dest": str, "direction": str, "minutes": int, "delayed": bool}, ...]}
+        {"line","train","dest","direction","minutes","delayed"}, ...]}
 See deploy/UI-ASKS.md — the board layout is UI-owned polish.
 """
 from __future__ import annotations
@@ -29,13 +30,14 @@ from pi_led_core.canvas import (
     draw_px,
     draw_px_centered,
     filled_rect,
-    micro_text_width,
     new_canvas,
     px_text_width,
     scale_color,
 )
 
 _AGENCY_COLOR = {"CT": RED, "SM": BLUE, "SF": GRAY, "BA": BLUE}
+# Caltrain service names -> short tag.
+_SERVICE = (("bullet", "BULLET"), ("limited", "LTD"), ("express", "EXP"), ("local", "LOCAL"))
 
 
 def _agency_color(agency: str):
@@ -43,17 +45,43 @@ def _agency_color(agency: str):
 
 
 def _min_text(m: int) -> str:
-    if m <= 0:
-        return "NOW"
-    return f"{m}m"
+    return "NOW" if m <= 0 else f"{m}m"
 
 
 def _min_color(m: int, delayed: bool):
     if delayed:
         return RED
+    if m <= 0:
+        return LIME
     if m <= 3:
-        return LIME if m <= 0 else GREEN
+        return GREEN
     return WHITE
+
+
+def _fit_px(text: str, max_w: int) -> str:
+    while text and px_text_width(text, PX_SMALL) > max_w:
+        text = text[:-1]
+    return text
+
+
+def _service_tag(line: str) -> str:
+    low = (line or "").lower()
+    for key, tag in _SERVICE:
+        if key in low:
+            return tag
+    return ""
+
+
+def _detail(agency: str, dep: dict) -> str:
+    """Second line: Caltrain -> '#631 LOCAL'; bus -> '292 SAN MATEO'."""
+    line = str(dep.get("line", "")).strip().upper()
+    train = str(dep.get("train", "")).strip()
+    dest = str(dep.get("dest", "")).strip().upper()
+    if (agency or "").upper() == "CT":
+        svc = _service_tag(dep.get("line", ""))
+        return (f"#{train} {svc}".strip() if train else svc)[:13]
+    # bus: route number + destination (the stop label already gives the place)
+    return (f"{line} {dest}" if line else dest)[:13]
 
 
 def render_transit(board, has_key=True, tick=0.0):
@@ -63,48 +91,33 @@ def render_transit(board, has_key=True, tick=0.0):
     filled_rect(draw, 4, 7, WIDTH - 5, 7, scale_color(ACCENT, 0.5))
 
     if not has_key:
-        draw_px_centered(draw, 22, "NEED", fill=scale_color(WHITE, 0.8), size=PX_SMALL)
-        draw_px_centered(draw, 34, "511 KEY", fill=scale_color(WHITE, 0.8), size=PX_SMALL)
+        draw_px_centered(draw, 22, "NEED", fill=WHITE, size=PX_SMALL)
+        draw_px_centered(draw, 34, "511 KEY", fill=WHITE, size=PX_SMALL)
         return img
 
     if not board:
-        draw_px_centered(draw, 28, "NO SVC", fill=scale_color(WHITE, 0.7), size=PX_SMALL)
+        draw_px_centered(draw, 28, "NO SVC", fill=scale_color(WHITE, 0.8), size=PX_SMALL)
         return img
 
     blocks = board[:3]
-    band = (64 - 10) // len(blocks)  # split the space below the header across stops
     for i, stop in enumerate(blocks):
-        y = 10 + i * band
+        y = 10 + i * 18
         color = _agency_color(stop.get("agency", ""))
-        label = str(stop.get("label", "")).upper()[:9]
-        draw_micro(draw, (2, y + 1), label, fill=color)
-
+        label = str(stop.get("label", "")).upper()
         deps = stop.get("departures") or []
-        if not deps:
-            txt = "--"
-            draw_px(draw, (WIDTH - px_text_width(txt, PX_SMALL) - 1, y), txt, fill=GRAY, size=PX_SMALL)
+
+        # right side: big minute countdown (or "--"); then fit the label before it
+        first = deps[0] if deps else None
+        mt = _min_text(int(first["minutes"])) if first else "--"
+        mc = _min_color(int(first["minutes"]), bool(first.get("delayed"))) if first else scale_color(WHITE, 0.5)
+        mx = WIDTH - px_text_width(mt, PX_SMALL) - 1
+        draw_px(draw, (mx, y), mt, fill=mc, size=PX_SMALL)
+        draw_px(draw, (1, y), _fit_px(label, mx - 3), fill=color, size=PX_SMALL)
+        if not first:
             continue
 
-        first = deps[0]
-        mt = _min_text(int(first["minutes"]))
-        mc = _min_color(int(first["minutes"]), bool(first.get("delayed")))
-        draw_px(draw, (WIDTH - px_text_width(mt, PX_SMALL) - 1, y), mt, fill=mc, size=PX_SMALL)
-
-        # route# + destination under the label; second departure small on the right.
-        # Only short line ids (bus route numbers like "292"/"ECR") are worth
-        # prefixing — Caltrain's line is a long service name ("Local Weekday").
-        line = str(first.get("line", "")).strip().upper()
-        dest = str(first.get("dest", "")).upper()
-        dest_txt = (f"{line} {dest}" if 0 < len(line) <= 4 else dest).strip()
-        if dest_txt:
-            dest_txt = dest_txt[:11]
-            draw_micro(draw, (2, y + 8), dest_txt, fill=scale_color(WHITE, 0.7))
-        if len(deps) > 1:
-            nxt = f"+{int(deps[1]['minutes'])}"
-            draw_micro(
-                draw,
-                (WIDTH - micro_text_width(nxt) - 1, y + 8),
-                nxt,
-                fill=scale_color(GRAY, 0.9),
-            )
+        # detail line: train#/route + destination, bright
+        detail = _detail(stop.get("agency", ""), first)
+        if detail:
+            draw_micro(draw, (1, y + 9), detail, fill=WHITE)
     return img

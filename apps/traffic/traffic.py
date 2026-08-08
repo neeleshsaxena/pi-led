@@ -63,8 +63,13 @@ def _first_coord(geography: dict):
     return None
 
 
+def _road_base(name: str) -> str:
+    # names look like "CA-82 S" / "US-101 N" — the base code is the first token.
+    parts = (name or "").split()
+    return parts[0] if parts else ""
+
+
 def _road_label(name: str) -> str:
-    # names look like "CA-82 S" / "US-101 N" — split off the direction letter.
     parts = (name or "").split()
     base = parts[0] if parts else ""
     direction = parts[1] if len(parts) > 1 else ""
@@ -87,7 +92,16 @@ class TrafficClient:
     async def close(self) -> None:
         await self._client.aclose()
 
-    def _shape(self, raw: list[dict], lat: float, lon: float, radius_km: float) -> list[dict]:
+    def _shape(
+        self,
+        raw: list[dict],
+        lat: float,
+        lon: float,
+        radius_km: float,
+        roads: list[str] | None,
+        sort: str,
+    ) -> list[dict]:
+        want = {r.upper() for r in roads} if roads else None
         out: list[dict] = []
         for e in raw:
             if str(e.get("status", "")).upper() not in ("", "ACTIVE"):
@@ -96,8 +110,11 @@ class TrafficClient:
             dist = _haversine_km(lat, lon, here[0], here[1]) if here else 999.0
             if dist > radius_km:
                 continue
-            roads = e.get("roads") or []
-            road0 = roads[0] if roads else {}
+            road_list = e.get("roads") or []
+            road0 = road_list[0] if road_list else {}
+            code = _road_base(str(road0.get("name", "")))
+            if want is not None and code.upper() not in want:
+                continue
             etype = str(e.get("event_type", "")).upper()
             subtype = (e.get("event_subtypes") or [""])[0]
             frm = str(road0.get("from", "")).strip()
@@ -106,6 +123,7 @@ class TrafficClient:
             out.append(
                 {
                     "road": _road_label(str(road0.get("name", ""))),
+                    "code": code,
                     "type": etype,
                     "subtype": subtype,
                     "severity": str(e.get("severity", "Unknown")),
@@ -114,23 +132,39 @@ class TrafficClient:
                     "area": (e.get("areas") or [{}])[0].get("name", ""),
                 }
             )
-        out.sort(key=lambda d: (-_SEV_RANK.get(d["severity"].upper(), 0), d["dist_km"]))
+        if sort == "distance":
+            out.sort(key=lambda d: d["dist_km"])
+        else:  # "severity": worst first, then nearest
+            out.sort(key=lambda d: (-_SEV_RANK.get(d["severity"].upper(), 0), d["dist_km"]))
         return out
 
-    async def events(self, lat: float, lon: float, radius_km: float = 6.0) -> list[dict]:
+    async def _raw(self) -> list[dict]:
         key = _api_key()
         if not key:
             return []
         now = time.monotonic()
         if self._cache and now - self._cache[0] < self._ttl:
-            raw = self._cache[1]
-        else:
-            try:
-                r = await self._client.get(EVENTS_URL, params={"api_key": key, "format": "json"})
-                r.raise_for_status()
-                data = json.loads(r.content.decode("utf-8-sig", errors="replace"))
-                raw = data.get("events", []) or []
-                self._cache = (now, raw)
-            except Exception:  # noqa: BLE001 - a bad fetch must not break the panel
-                raw = self._cache[1] if self._cache else []
-        return self._shape(raw, lat, lon, radius_km)
+            return self._cache[1]
+        try:
+            r = await self._client.get(EVENTS_URL, params={"api_key": key, "format": "json"})
+            r.raise_for_status()
+            data = json.loads(r.content.decode("utf-8-sig", errors="replace"))
+            raw = data.get("events", []) or []
+            self._cache = (now, raw)
+            return raw
+        except Exception:  # noqa: BLE001 - a bad fetch must not break the panel
+            return self._cache[1] if self._cache else []
+
+    async def events(
+        self,
+        lat: float,
+        lon: float,
+        radius_km: float = 6.0,
+        roads: list[str] | None = None,
+        sort: str = "severity",
+    ) -> list[dict]:
+        """Incidents within radius_km of (lat, lon). `roads` filters to specific
+        base codes (e.g. ['US-101','I-280']); `sort` is 'severity' or 'distance'."""
+        if not _api_key():
+            return []
+        return self._shape(await self._raw(), lat, lon, radius_km, roads, sort)
