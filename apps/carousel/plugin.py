@@ -29,6 +29,8 @@ from pi_led_core.plugin import LedApp, RenderContext
 DEFAULT_VIEWS = [
     "weather:current",
     "weather:forecast",
+    "transit:main",
+    "traffic:main",
     "plants:main",
     "reminders:main",
     "clock:digital",
