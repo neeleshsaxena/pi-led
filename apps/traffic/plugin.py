@@ -92,7 +92,7 @@ class TrafficApp(LedApp):
             except Exception:  # noqa: BLE001 - best-effort; keep last events
                 pass
 
-        title = "101 → SF" if commute else "TRAFFIC"
+        title = "101 TO SF" if commute else "TRAFFIC"
         return render_traffic(self._events.get(ctx.view, []), has_key=has_key, title=title, tick=ctx.tick)
 
     def view_cycle_seconds(self, view_id: str, config: dict) -> float | None:
