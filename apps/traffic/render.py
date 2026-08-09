@@ -18,6 +18,7 @@ from pi_led_core.canvas import (
     GRAY,
     GREEN,
     ORANGE,
+    PX_HUGE,
     PX_SMALL,
     RED,
     WHITE,
@@ -128,4 +129,43 @@ def render_traffic(events, has_key=True, title="TRAFFIC", tick=0.0):
             on = i == (page % dots)
             filled_rect(draw, x0 + i * gap, 61, x0 + i * gap + 1, 62,
                         color if on else scale_color(GRAY, 0.5))
+    return img
+
+
+def _eta_color(delay_min: int):
+    if delay_min <= 3:
+        return GREEN
+    if delay_min <= 10:
+        return YELLOW
+    return RED
+
+
+def render_eta(eta, has_key=True, dest="SF", tick=0.0):
+    """Live driving time to `dest`. `eta` is {minutes, free_min, delay_min, km}."""
+    img = new_canvas()
+    draw = ImageDraw.Draw(img)
+    draw_px_centered(draw, 0, f"{dest} DRIVE".upper(), fill=ACCENT, size=PX_SMALL)
+    filled_rect(draw, 3, 9, WIDTH - 4, 9, scale_color(ACCENT, 0.5))
+
+    if not has_key:
+        draw_px_centered(draw, 16, "NEED", fill=WHITE, size=PX_SMALL)
+        draw_px_centered(draw, 30, "TOMTOM", fill=WHITE, size=PX_SMALL)
+        draw_px_centered(draw, 44, "KEY", fill=WHITE, size=PX_SMALL)
+        return img
+
+    if not eta:
+        draw_px_centered(draw, 28, "NO DATA", fill=scale_color(WHITE, 0.7), size=PX_SMALL)
+        return img
+
+    delay = int(eta.get("delay_min", 0))
+    color = _eta_color(delay)
+    # hero: big minute count, coloured by how congested the drive is
+    draw_px_centered(draw, 13, str(int(eta.get("minutes", 0))), fill=color, size=PX_HUGE)
+    draw_px_centered(draw, 39, "MIN", fill=scale_color(WHITE, 0.75), size=PX_SMALL)
+
+    # delay vs. free-flow
+    if delay <= 0:
+        draw_px_centered(draw, 50, "NO DELAY", fill=GREEN, size=PX_SMALL)
+    else:
+        draw_px_centered(draw, 50, f"+{delay} MIN", fill=color, size=PX_SMALL)
     return img

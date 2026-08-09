@@ -32,6 +32,7 @@ DEFAULT_VIEWS = [
     "transit:main",
     "traffic:main",
     "traffic:commute",
+    "traffic:eta",
     "plants:main",
     "reminders:main",
     "clock:digital",
