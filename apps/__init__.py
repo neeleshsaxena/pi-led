@@ -6,6 +6,7 @@ from .ambient import AmbientApp
 from .birthday import BirthdayApp
 from .carousel import CarouselApp
 from .clock import ClockApp
+from .flights import FlightsApp
 from .messages import MessagesApp
 from .news import NewsApp
 from .plants import PlantApp
@@ -26,6 +27,7 @@ ALL_APPS = [
     PlantApp(),
     ReminderApp(),
     NewsApp(),
+    FlightsApp(),
     TransitApp(),
     TrafficApp(),
 ]
