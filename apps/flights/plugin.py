@@ -87,5 +87,6 @@ class FlightsApp(LedApp):
         return render_flights(dep, arr, has_key=has_key, tick=ctx.tick)
 
     def view_cycle_seconds(self, view_id: str, config: dict) -> float | None:
-        # Paged one flight at a time; give the rotation time to show a few.
-        return 16.0
+        # Paged one flight at a time (render DWELL ~4s); 24s shows ~6 cards per
+        # carousel visit instead of ~4.
+        return 24.0
