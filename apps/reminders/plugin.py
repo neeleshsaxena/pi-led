@@ -62,6 +62,10 @@ class ReminderApp(LedApp):
     async def render(self, ctx: RenderContext) -> Image.Image:
         return render_reminders(self._active(ctx.config or {}), ctx.tick)
 
+    def has_content(self, view_id: str, config: dict) -> bool:
+        # Skip the carousel slot entirely when there are no open reminders.
+        return bool(self._active(config or {}))
+
     def admin_router(self):
         from fastapi import APIRouter, Form
         from fastapi.responses import HTMLResponse, RedirectResponse

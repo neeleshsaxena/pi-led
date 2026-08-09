@@ -73,6 +73,12 @@ class LedApp:
         default. Return None to use the carousel's default dwell."""
         return None
 
+    def has_content(self, view_id: str, config: dict) -> bool:
+        """Optional: whether this view has anything worth showing right now. The
+        carousel skips views that return False (e.g. reminders with no open items)
+        so the rotation doesn't dwell on an empty screen. Default: always shown."""
+        return True
+
     async def render(self, ctx: RenderContext) -> Image.Image:
         """Return one RGB frame of size (ctx.width, ctx.height)."""
         raise NotImplementedError

@@ -54,9 +54,16 @@ class Controller:
 
     def _rotatable(self, key: str) -> bool:
         """A view key is usable in the carousel rotation if it resolves to a real
-        plugin that isn't the carousel itself (guards against self-recursion)."""
-        app, _ = self.registry.resolve(key)
-        return app is not None and app.id != CAROUSEL_ID
+        plugin that isn't the carousel itself (guards against self-recursion) and
+        has content to show right now (an app may opt out via has_content, e.g.
+        reminders with no open items — so the carousel skips its empty screen)."""
+        app, view_id = self.registry.resolve(key)
+        if app is None or app.id == CAROUSEL_ID:
+            return False
+        try:
+            return bool(app.has_content(view_id, self.state.config_for(app.id)))
+        except Exception:  # noqa: BLE001 - a bad check must not drop the view
+            return True
 
     def _dwell_for(self, key: str, default: float) -> float:
         """How long to hold this view. An app can request a longer dwell via
