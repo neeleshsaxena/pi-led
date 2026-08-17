@@ -120,6 +120,14 @@
     .cta.outdoor:active { box-shadow: 0 3px 10px rgba(47,127,224,.30); }
     .hint { margin: 12px 0 0; font-size: .74rem; color: var(--muted); text-align: center; }
 
+    /* a navigation link styled as a button (goes to a sub-page) */
+    .linkbtn { display: flex; align-items: center; justify-content: center; gap: 8px; text-decoration: none;
+      min-height: 52px; border-radius: 12px; font-weight: 600; font-size: 1rem;
+      background: rgba(255,122,24,.10); color: #ffd0a6; border: 1px solid rgba(255,122,24,.5);
+      transition: background .15s, border-color .15s, transform .04s; }
+    .linkbtn:hover { background: rgba(255,122,24,.18); border-color: var(--accent); }
+    .linkbtn:active { transform: translateY(1px); }
+
     footer { color: var(--muted); font-size: .74rem; text-align: center; }
     footer a { color: var(--blue); text-decoration: none; }
     /* Color + Animation stack vertically — bulletproof on any phone width. */
@@ -217,6 +225,12 @@
         </form>
       </div>
       <p class="hint">Blank = watered today (full interval). Or enter a day count — e.g. overwatered indoors, enter 8.</p>
+    </div>
+
+    <!-- REMINDERS -->
+    <div class="card">
+      <h2>Reminders</h2>
+      <a class="linkbtn" href="/admin/apps/reminders/">📝 Manage reminders →</a>
     </div>
 
     <footer><a href="/preview">Open full preview →</a></footer>
