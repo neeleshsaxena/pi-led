@@ -7,7 +7,7 @@ lifecycle live here (lead-owned); pixel layout lives in render.py (UI-owned).
 Config: `stops` is an ordered list of `{agency, stopcode, label}` — `agency` is a
 511 operator id ("CT" Caltrain, "SM" SamTrans), `stopcode` the platform/stop id,
 `label` the short name shown on the panel. The committed default is generic (SF
-4th & King Caltrain); the real the Bay Area + bus stops live in the stored config /
+4th & King Caltrain); the real local station + bus stops live in the stored config /
 TRANSIT_STOPS env, kept out of the repo. Needs a free 511 key (TRANSIT_API_KEY).
 """
 from __future__ import annotations
