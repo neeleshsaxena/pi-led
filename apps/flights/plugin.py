@@ -2,7 +2,9 @@
 
 Data/config/lifecycle live here (lead-owned); pixel layout lives in render.py
 (UI-owned). One AeroDataBox call fetches the whole board; we trim it to the next
-few flights each way for the panel.
+few flights each way for the panel. flights.py hands back each list already
+tier-sorted (Europe/India, then other international, then domestic; soonest
+within a tier — see regions.py), so the trim below naturally favors those tiers.
 
 Config: `icao` (airport, default KSFO), `hours` (look-ahead window), and `filters`
 — {airlines: [IATA...], cities: [name/iata...], numbers: ["UA523"...]}. Filters
@@ -13,6 +15,7 @@ Needs a free AeroDataBox RapidAPI key (AERODATABOX_API_KEY), device-only.
 from __future__ import annotations
 
 import os
+import time
 
 from PIL import Image
 
@@ -82,8 +85,12 @@ class FlightsApp(LedApp):
                     self._board = fresh
             except Exception:  # noqa: BLE001 - best-effort; keep last board
                 pass
-        dep = [f for f in self._board["departures"] if _match(f, filters)][:MAX_PER_SECTION]
-        arr = [f for f in self._board["arrivals"] if _match(f, filters)][:MAX_PER_SECTION]
+        # flights.py already drops past flights and tier-sorts at fetch time, but the
+        # board is cached up to ~30 min (FlightsClient's ttl) — re-check when_ts here
+        # so a flight that has since departed doesn't linger for the rest of the TTL.
+        now_ts = time.time()
+        dep = [f for f in self._board["departures"] if f["when_ts"] >= now_ts and _match(f, filters)][:MAX_PER_SECTION]
+        arr = [f for f in self._board["arrivals"] if f["when_ts"] >= now_ts and _match(f, filters)][:MAX_PER_SECTION]
         return render_flights(dep, arr, has_key=has_key, tick=ctx.tick)
 
     def view_cycle_seconds(self, view_id: str, config: dict) -> float | None:

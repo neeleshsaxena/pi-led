@@ -2,7 +2,11 @@
 
 `board(icao, hours)` returns the upcoming departures and arrivals as two lists of
 small dicts (flight number, airline, the other city, local time, minutes-until,
-status, delay, terminal/gate). One call returns the whole board; callers filter
+status, delay, terminal/gate, region tier). Flights already in the past (by
+scheduled/revised time) are dropped here. Each flight is tagged with a `tier`
+(see regions.py: Europe/India > other international > domestic) and each list is
+sorted tier-first, then soonest-first, so the higher tiers are what survive the
+per-section trim in plugin.py. One call returns the whole board; callers filter
 for the display, so filtering costs no extra API budget.
 
 Needs a free RapidAPI key subscribed to AeroDataBox (Basic, ~600 units/month, no
@@ -18,6 +22,8 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import httpx
+
+from .regions import tier as _region_tier
 
 _HOST = "aerodatabox.p.rapidapi.com"
 _URL = "https://aerodatabox.p.rapidapi.com/flights/airports/icao/{icao}/{start}/{end}"
@@ -71,26 +77,29 @@ class FlightsClient:
             sched = _parse_utc(mv.get("scheduledTime"))
             revised = _parse_utc(mv.get("revisedTime"))
             when = revised or sched
-            if when is None:
+            if when is None or when < now:  # drop flights already in the past
                 continue
             delay_min = int(round((revised - sched).total_seconds() / 60)) if (revised and sched) else 0
             ap = mv.get("airport") or {}
+            iata = str(ap.get("iata") or "").strip()
             out.append(
                 {
                     "number": str(f.get("number") or "").strip(),
                     "airline": str((f.get("airline") or {}).get("name") or "").strip(),
                     "city": str(ap.get("name") or "").strip(),
-                    "iata": str(ap.get("iata") or "").strip(),
+                    "iata": iata,
                     "time": _local_hhmm(mv.get("scheduledTime")),
                     "minutes": int(round((when - now).total_seconds() / 60)),
+                    "when_ts": when.timestamp(),  # re-checked in plugin.py against cache staleness
                     "status": str(f.get("status") or "").strip(),
                     "delay_min": delay_min,
                     "terminal": str(mv.get("terminal") or "").strip(),
                     "gate": str(mv.get("gate") or "").strip(),
                     "kind": kind,
+                    "tier": _region_tier(iata),
                 }
             )
-        out.sort(key=lambda d: d["minutes"])
+        out.sort(key=lambda d: (-d["tier"], d["minutes"]))
         return out
 
     async def board(self, icao: str = "KSFO", hours: int = 8) -> dict:
