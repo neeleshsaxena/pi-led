@@ -58,10 +58,14 @@ def _local_hhmm(node: dict | None) -> str:
 
 
 class FlightsClient:
-    def __init__(self, timeout: float = 12.0, ttl: float = 1800.0):
+    def __init__(self, timeout: float = 12.0, ttl: float = 10800.0, retry_interval: float = 1800.0):
         self._client = httpx.AsyncClient(timeout=timeout, follow_redirects=True)
         self._cache: dict[str, tuple[float, dict]] = {}
-        self._ttl = ttl  # 30 min — protects the ~600 units/month AeroDataBox budget
+        # AeroDataBox free tier = 600 units/month, ~2 units per airport call, so the
+        # sustainable ceiling is ~10 fetches/day. 3h TTL -> ~8/day (~480 units/mo).
+        self._ttl = ttl
+        self._retry_interval = retry_interval  # min gap between fetch *attempts*
+        self._last_attempt = 0.0
 
     @property
     def has_key(self) -> bool:
@@ -107,15 +111,22 @@ class FlightsClient:
         key = _api_key()
         if not key:
             return {"departures": [], "arrivals": []}
-        now_local = datetime.now(_TZ)
-        # AeroDataBox caps the window at 12h; query from ~now to now+hours.
-        start = now_local.strftime("%Y-%m-%dT%H:%M")
-        end = (now_local + timedelta(hours=min(hours, 12))).strftime("%Y-%m-%dT%H:%M")
-        ck = f"{icao}:{start}"
+        ck = icao  # cache per airport, NOT per-minute window — keying the cache by
+        # the minute-stamped window defeated the TTL and drained the monthly budget.
         mono = time.monotonic()
         hit = self._cache.get(ck)
         if hit and mono - hit[0] < self._ttl:
             return hit[1]
+        # Don't re-hit the API on every render frame when there's no fresh cache:
+        # throttle attempts so a quota/network error can't hammer it (5fps) into a
+        # storm of 429s. Between attempts, serve the last good board (or empty).
+        if mono - self._last_attempt < self._retry_interval:
+            return hit[1] if hit else {"departures": [], "arrivals": []}
+        self._last_attempt = mono
+        now_local = datetime.now(_TZ)
+        # AeroDataBox caps the window at 12h; query from ~now to now+hours.
+        start = now_local.strftime("%Y-%m-%dT%H:%M")
+        end = (now_local + timedelta(hours=min(hours, 12))).strftime("%Y-%m-%dT%H:%M")
         url = _URL.format(icao=icao, start=start, end=end)
         params = {
             "direction": "Both",
