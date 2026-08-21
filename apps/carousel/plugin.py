@@ -38,6 +38,7 @@ DEFAULT_VIEWS = [
     "reminders:main",
     "clock:digital",
     "messages:main",
+    "birthday:main",
     "ambient:starfield",
 ]
 
