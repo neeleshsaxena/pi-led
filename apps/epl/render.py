@@ -66,8 +66,10 @@ def _team_color(hexstr: str):
     except ValueError:
         return WHITE
     mx = max(r, g, b)
-    if mx < 90:  # floor brightness so dark kits stay legible on the panel
-        f = 90.0 / max(mx, 1)
+    if mx < 40:  # near-black kit (e.g. Newcastle 000000) — invisible on black; use light gray
+        return (205, 205, 212)
+    if mx < 120:  # dark but colored — scale up preserving hue (multiplying keeps the tint)
+        f = 120.0 / mx
         r, g, b = min(255, int(r * f)), min(255, int(g * f)), min(255, int(b * f))
     return (r, g, b)
 
