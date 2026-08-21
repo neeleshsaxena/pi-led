@@ -213,27 +213,72 @@ def _celebration(name, tick):
     return img
 
 
+def _heart(draw, cx: int, cy: int, color) -> None:
+    """A tiny 5x4 pixel heart centered near (cx, cy)."""
+    for p in (
+        (cx - 1, cy - 1), (cx + 1, cy - 1),
+        (cx - 2, cy), (cx - 1, cy), (cx, cy), (cx + 1, cy), (cx + 2, cy),
+        (cx - 1, cy + 1), (cx, cy + 1), (cx + 1, cy + 1),
+        (cx, cy + 2),
+    ):
+        draw.point(p, fill=color)
+
+
+def _rising_hearts(draw, tick, count=6) -> None:
+    """Little hearts floating up, gently swaying — deterministic per heart."""
+    hues = [PINK, (255, 120, 150), GOLD, CYAN]
+    for k in range(count):
+        rnd = random.Random(k * 13 + 7)
+        span = HEIGHT + 16
+        hy = HEIGHT + 4 - int((tick * 7.0 + rnd.random() * span) % span)
+        if not (-4 < hy < HEIGHT + 4):
+            continue
+        hx = rnd.randint(6, WIDTH - 6) + int(2.0 * math.sin(tick * 1.7 + k))
+        _heart(draw, hx, hy, hues[k % len(hues)])
+
+
+def _sunburst(draw, cx: int, cy: int, tick, rays: int = 12, r_in: int = 14) -> None:
+    """Warm rotating sun rays radiating around a center point — a bright, cheerful
+    halo (a nod to "Sunny"). Rays start outside r_in so the number stays clear."""
+    base = tick * 20.0  # slow spin
+    for i in range(rays):
+        ang = math.radians(base + i * (360.0 / rays))
+        ln = r_in + 3 + 4.0 * (0.5 + 0.5 * math.sin(tick * 2.2 + i))
+        col = scale_color(ORANGE if i % 2 else GOLD,
+                          0.45 + 0.55 * abs(math.sin(tick * 2.2 + i * 0.6)))
+        draw.line(
+            [(cx + math.cos(ang) * r_in, cy + math.sin(ang) * r_in),
+             (cx + math.cos(ang) * ln, cy + math.sin(ang) * ln)],
+            fill=col,
+        )
+
+
 def render_milestone(name, months, is_day=False, tick=0.0):
-    """Monthly milestone card — "<NAME> / N / MONTHS" over a candle-lit cake, with
-    confetti + a marquee. On the milestone day itself it goes full party (rainbow
-    marquee + fireworks); other days it's a calmer 'you are N months old' card."""
+    """Monthly milestone card, dressed up: the name, a big pulsing month count
+    haloed by rotating sun rays, over a candle-lit cake, with hearts floating up,
+    twinkles and a party border. On the milestone day it goes full party (rainbow
+    marquee + fireworks)."""
     name = (name or "").upper()
     img = new_canvas()
     draw = ImageDraw.Draw(img)
+    # backdrop: twinkles, floating hearts, a sun halo behind the number
+    sparkle(draw, tick, count=10, seed=6)
+    _rising_hearts(draw, tick, count=6)
+    _sunburst(draw, WIDTH // 2, 23, tick)
     _marquee(draw, tick, color=rainbow(tick, period=2.4) if is_day else GOLD, speed=9.0)
-    _confetti(img, tick, count=18 if is_day else 9, speed=10.0)
+    _confetti(img, tick, count=16 if is_day else 8, speed=10.0)
     if is_day:
         _fireworks(draw, tick)
+    # foreground text — drawn last so it stays crisp over the decor
     draw_px_centered(draw, 2, name, fill=PINK, size=PX_SMALL)
     num = str(max(0, int(months)))
     draw_px_centered(
-        draw, 12, num,
-        fill=pulse_color(GOLD, tick, period=2.0, min_factor=0.7),
+        draw, 14, num,
+        fill=pulse_color(GOLD, tick, period=1.6, min_factor=0.72),
         size=PX_HUGE if len(num) == 1 else PX_BIG,
     )
     draw_px_centered(draw, 33, "MONTHS" if months != 1 else "MONTH", fill=WHITE, size=PX_SMALL)
     _cake(draw, WIDTH // 2, 52, tick, candles=max(1, min(int(months) or 1, 4)))
-    sparkle(draw, tick, count=8, seed=6)
     return img
 
 
