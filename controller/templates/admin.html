@@ -209,6 +209,24 @@
       </form>
     </div>
 
+    <!-- EPL / PREMIER LEAGUE -->
+    <div class="card">
+      <h2>⚽ Premier League</h2>
+      <form method="post" action="/admin/epl">
+        <div class="field" style="margin-bottom:4px">
+          <label for="favorite">Favorite team</label>
+          <select id="favorite" name="favorite" style="text-transform:none">
+            <option value="" {{ 'selected' if not epl_cfg.get('favorite') else '' }}>— none —</option>
+            {% for t in epl_teams %}
+            <option value="{{ t.abbr }}" {{ 'selected' if t.abbr == epl_cfg.get('favorite', '')|upper else '' }}>{{ t.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <p class="hint" style="text-align:left">Your club's matches float to the top and get highlighted across the EPL scores, fixtures &amp; table screens.</p>
+        <button type="submit" class="cta">Save favorite</button>
+      </form>
+    </div>
+
     <!-- PLANTS — watering reset -->
     <div class="card">
       <h2>Plants</h2>

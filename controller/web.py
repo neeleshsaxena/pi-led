@@ -8,6 +8,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from apps import ALL_APPS
+from apps.epl.espn import EplClient
 from apps.messages.plugin import COLORS
 from apps.messages.render import VIZ_CHOICES
 from pi_led_core.canvas import new_canvas
@@ -24,6 +25,54 @@ state = ControllerState(default_active=DEFAULT_ACTIVE, defaults=_defaults)
 
 app = FastAPI(title="pi-led controller")
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent / "templates"))
+
+# Offline fallback for the EPL favorite-team dropdown: used only if the keyless
+# ESPN standings call fails/returns empty, so the admin page never crashes. The
+# live standings() call supplies the authoritative names + abbreviations.
+_EPL_FALLBACK_TEAMS = [
+    {"abbr": "ARS", "name": "Arsenal"},
+    {"abbr": "AVL", "name": "Aston Villa"},
+    {"abbr": "BOU", "name": "Bournemouth"},
+    {"abbr": "BRE", "name": "Brentford"},
+    {"abbr": "BHA", "name": "Brighton"},
+    {"abbr": "CHE", "name": "Chelsea"},
+    {"abbr": "CRY", "name": "Crystal Palace"},
+    {"abbr": "EVE", "name": "Everton"},
+    {"abbr": "FUL", "name": "Fulham"},
+    {"abbr": "LIV", "name": "Liverpool"},
+    {"abbr": "MNC", "name": "Man City"},
+    {"abbr": "MNU", "name": "Man United"},
+    {"abbr": "NEW", "name": "Newcastle"},
+    {"abbr": "NFO", "name": "Nottingham Forest"},
+    {"abbr": "TOT", "name": "Tottenham"},
+    {"abbr": "WHU", "name": "West Ham"},
+    {"abbr": "WOL", "name": "Wolves"},
+]
+
+
+async def _epl_teams(favorite: str = "") -> list[dict]:
+    """[{abbr, name}, …] for the favorite-team dropdown, alpha by name.
+
+    Pulls the live table from the keyless ESPN client; on any failure falls back to
+    a static list so the admin page still renders. Guarantees the current favorite
+    is present (so its <option> can be pre-selected even if the API omits it)."""
+    client = EplClient()
+    try:
+        rows = await client.standings()
+    except Exception:  # noqa: BLE001 - the admin page must never crash on a bad fetch
+        rows = []
+    finally:
+        await client.close()
+
+    teams = [{"abbr": r["abbr"], "name": r["name"]} for r in rows if r.get("abbr")]
+    if not teams:
+        teams = list(_EPL_FALLBACK_TEAMS)
+    teams.sort(key=lambda t: t["name"])
+
+    fav = (favorite or "").upper()
+    if fav and fav not in {t["abbr"] for t in teams}:
+        teams.insert(0, {"abbr": fav, "name": fav})
+    return teams
 
 # Mount any per-plugin admin routes under /admin/apps/<id>.
 for _app in registry.all():
@@ -62,7 +111,9 @@ def api_state() -> dict:
 
 
 @app.get("/admin", response_class=HTMLResponse)
-def admin(request: Request, _: str = Depends(admin_required)) -> HTMLResponse:
+async def admin(request: Request, _: str = Depends(admin_required)) -> HTMLResponse:
+    epl_cfg = state.config_for("epl")
+    epl_teams = await _epl_teams(str(epl_cfg.get("favorite", "")))
     return templates.TemplateResponse(
         request,
         "admin.html",
@@ -72,6 +123,8 @@ def admin(request: Request, _: str = Depends(admin_required)) -> HTMLResponse:
             "message_cfg": state.config_for("messages"),
             "colors": list(COLORS.keys()),
             "viz_choices": list(VIZ_CHOICES),
+            "epl_cfg": epl_cfg,
+            "epl_teams": epl_teams,
             "scale": PREVIEW_SCALE,
         },
     )
@@ -94,4 +147,12 @@ def set_message(
     state.set_config("messages", {"text": text, "color": color, "viz": viz})
     if activate:
         state.set_active("messages:main")
+    return RedirectResponse("/admin", status_code=303)
+
+
+@app.post("/admin/epl")
+def set_epl(favorite: str = Form(""), _: str = Depends(admin_required)) -> RedirectResponse:
+    # Only the favorite is editable from the UI; league stays whatever the stored
+    # config holds (default eng.1). Empty value = no favorite ("— none —").
+    state.set_config("epl", {"favorite": favorite.strip().upper()})
     return RedirectResponse("/admin", status_code=303)
