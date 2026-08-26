@@ -90,6 +90,22 @@ deploy/push.sh worldcup:today   # ...and switch the panel to a view
 switches the active view, and prints renderer health (flags any frame errors).
 A restart blanks the panel for ~2–3 s, then it resumes.
 
+### Deploying while iterating on one app
+
+`deploy/app-deploy.sh` is a shared, location-independent wrapper around `push.sh`
+— run it from *inside* an app folder and it finds the repo root itself, detects
+which app you're in, deploys, and pins that app's first view so you land on your
+change. (There's still no per-app deploy: the Pi is one editable install with a
+single renderer, so every push syncs the whole repo — this only removes friction.)
+
+```bash
+# while editing apps/epl/render.py, from that dir:
+../../deploy/app-deploy.sh          # detect 'epl', deploy, pin epl's first view
+deploy/app-deploy.sh epl:table      # explicit "<app>:<view>"
+deploy/app-deploy.sh --no-view      # deploy, keep the current view
+deploy/app-deploy.sh -n             # dry run — print what it would do
+```
+
 Only re-run `.venv/bin/pip install -e .` on the Pi if `pyproject.toml`
 dependencies changed (rare). Override the target host with `PI_HOST=...`.
 
