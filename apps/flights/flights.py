@@ -65,7 +65,12 @@ class FlightsClient:
         # sustainable ceiling is ~10 fetches/day. 3h TTL -> ~8/day (~480 units/mo).
         self._ttl = ttl
         self._retry_interval = retry_interval  # min gap between fetch *attempts*
-        self._last_attempt = 0.0
+        # -inf, NOT 0.0: time.monotonic() is seconds-since-boot on Linux, so a
+        # freshly-booted Pi starts at mono~=20-60. With _last_attempt=0.0 the very
+        # first render would see (mono - 0) < retry_interval and wrongly throttle
+        # the initial fetch, leaving the board blank for ~30 min after every reboot.
+        # -inf guarantees the first attempt always clears the throttle.
+        self._last_attempt = float("-inf")
 
     @property
     def has_key(self) -> bool:
@@ -122,6 +127,16 @@ class FlightsClient:
         # storm of 429s. Between attempts, serve the last good board (or empty).
         if mono - self._last_attempt < self._retry_interval:
             return hit[1] if hit else {"departures": [], "arrivals": []}
+        # Set the attempt stamp BEFORE awaiting the request. This does three jobs:
+        #  1. an exception below still leaves it stamped, so failures stay throttled;
+        #  2. a (hypothetical) concurrent second board() call is throttled by it,
+        #     so we never double-fetch even without a lock; and
+        #  3. steady state is 1 fetch / ttl (3h) = 8/day = ~16 units/day (~480/mo).
+        # Restart exposure (cache + stamp reset) is ~1 fetch = ~2 units per process
+        # start; that's small vs the 8/day steady rate and monotonic timestamps can't
+        # be compared across restarts, so we deliberately don't persist across boots.
+        # `hours` is intentionally not part of the cache key: it's a fixed config, and
+        # a stale window for one TTL is harmless.
         self._last_attempt = mono
         now_local = datetime.now(_TZ)
         # AeroDataBox caps the window at 12h; query from ~now to now+hours.

@@ -16,8 +16,20 @@ dependencies = [
     "httpx",
 ]
 
+[project.optional-dependencies]
+# Test-only deps: `pip install -e '.[dev]'`. Not shipped to the Pi's runtime.
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+]
+
 # rpi-rgb-led-matrix (the 'rgbmatrix' module) is installed separately on the Pi
 # from hzeller's source; the sink auto-detects it. Not a pip dependency.
 
 [tool.setuptools]
 packages = ["pi_led_core", "apps", "apps.carousel", "apps.messages", "apps.worldcup", "apps.clock", "apps.weather", "apps.ambient", "apps.birthday", "apps.plants", "apps.reminders", "apps.news", "apps.transit", "apps.traffic", "apps.flights", "apps.epl", "controller"]
+
+[tool.pytest.ini_options]
+# asyncio_mode=auto so plain `async def test_*` run without per-test decorators.
+asyncio_mode = "auto"
+testpaths = ["tests"]
