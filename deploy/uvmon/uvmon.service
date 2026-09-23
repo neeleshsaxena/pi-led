@@ -1,0 +1,14 @@
+[Unit]
+Description=Pi under-voltage / throttle sampler (logs state changes to the journal)
+# Only meaningful on real Pi hardware where vcgencmd exists.
+ConditionPathExists=/usr/bin/vcgencmd
+
+[Service]
+Type=oneshot
+# Script lives in the synced repo, so `deploy/push.sh` keeps it up to date and
+# only the units below need a one-time install. Update the path if PI_DEST differs.
+# Invoked via `bash <script>` (not the bare path) so it doesn't depend on the
+# execute bit — rsync from a non-executable source copy would otherwise strip it
+# and break ExecStart with 203/EXEC.
+ExecStart=/bin/bash /home/pi/pi-led/deploy/uvmon/uvmon.sh
+Nice=10

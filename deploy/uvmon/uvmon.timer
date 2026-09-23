@@ -1,0 +1,11 @@
+[Unit]
+Description=Run uvmon every minute (Pi under-voltage / throttle sampling)
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=60s
+AccuracySec=5s
+Unit=uvmon.service
+
+[Install]
+WantedBy=timers.target
