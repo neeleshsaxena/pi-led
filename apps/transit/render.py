@@ -43,6 +43,47 @@ def _agency_color(agency: str):
     return _AGENCY_COLOR.get((agency or "").upper(), ACCENT)
 
 
+# Which agencies are rail (train icon) vs everything else (bus icon).
+_RAIL_AGENCIES = {"CT", "BA", "CE", "AM"}  # Caltrain, BART, ACE, Amtrak
+_BLACK = (0, 0, 0)
+ICON_W = 13  # drawn width of the mode glyph
+
+
+def _draw_bus(draw, x: int, y: int, color) -> None:
+    """A small bus: boxy body, a strip of window panes, two wheels. ~13x8 px."""
+    filled_rect(draw, x, y, x + 12, y + 5, color)              # body
+    filled_rect(draw, x + 1, y + 1, x + 11, y + 2, _BLACK)     # window band (punched)
+    for wx in (x + 4, x + 8):                                  # split into panes
+        filled_rect(draw, wx, y + 1, wx, y + 2, color)
+    filled_rect(draw, x + 11, y + 3, x + 11, y + 4, scale_color(color, 0.55))  # front seam
+    filled_rect(draw, x + 2, y + 6, x + 3, y + 7, color)       # wheels
+    filled_rect(draw, x + 9, y + 6, x + 10, y + 7, color)
+
+
+def _draw_train(draw, x: int, y: int, color) -> None:
+    """A small electric train (EMU): a pantograph on the roof — the giveaway that
+    it's a train and not a bus — a streamlined body with a window band, a
+    headlight nose, and two bogies riding a rail line. ~13x10 px."""
+    filled_rect(draw, x + 5, y, x + 9, y, scale_color(color, 0.85))  # pantograph bar
+    draw.point((x + 7, y + 1), fill=scale_color(color, 0.85))        # pantograph stem
+    filled_rect(draw, x, y + 2, x + 12, y + 6, color)                # body
+    draw.point((x + 12, y + 2), fill=_BLACK)                         # chamfered nose (front)
+    filled_rect(draw, x + 1, y + 3, x + 11, y + 4, _BLACK)           # window band
+    for wx in (x + 4, x + 8):                                        # window dividers
+        filled_rect(draw, wx, y + 3, wx, y + 4, color)
+    draw.point((x + 11, y + 3), fill=WHITE)                          # headlight
+    for wx in (x + 2, x + 9):                                        # two bogies
+        filled_rect(draw, wx, y + 7, wx + 1, y + 8, color)
+    filled_rect(draw, x, y + 9, x + 12, y + 9, scale_color(GRAY, 0.7))  # rail
+
+
+def _draw_mode_icon(draw, agency: str, x: int, y: int, color) -> None:
+    if (agency or "").upper() in _RAIL_AGENCIES:
+        _draw_train(draw, x, y, color)
+    else:
+        _draw_bus(draw, x, y, color)
+
+
 def _min_color(m: int, delayed: bool):
     if delayed:
         return RED
@@ -111,8 +152,14 @@ def render_transit(board, has_key=True, tick=0.0):
     color = _agency_color(stop.get("agency", ""))
     deps = stop.get("departures") or []
 
-    # stop name in agency colour
-    draw_px_centered(draw, 12, _fit(str(stop.get("label", "")).upper(), WIDTH - 4), fill=color, size=PX_SMALL)
+    # mode icon (train vs bus) + stop name, centered together as a group so a
+    # glance distinguishes Caltrain from bus before you even read the label.
+    label = _fit(str(stop.get("label", "")).upper(), WIDTH - ICON_W - 6)
+    label_w = px_text_width(label, PX_SMALL)
+    gap = 3
+    x0 = max(1, (WIDTH - (ICON_W + gap + label_w)) // 2)
+    _draw_mode_icon(draw, stop.get("agency", ""), x0, 10, color)
+    draw_px(draw, (x0 + ICON_W + gap, 12), label, fill=color, size=PX_SMALL)
 
     if not deps:
         draw_px_centered(draw, 32, "NO SVC", fill=scale_color(WHITE, 0.6), size=PX_SMALL)
