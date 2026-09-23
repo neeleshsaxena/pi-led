@@ -2,14 +2,17 @@
 
 Uses the `site.web.api.espn.com` host (the older `site.api.espn.com` host is now
 Akamai-blocked with 403s). Exposes three small reads used by the panel:
-  - scoreboard(dates) : matches in a window (today by default, or a date range)
-  - upcoming(days)    : scheduled fixtures over the next N days
+  - scoreboard(dates) : matches on a given day (today by default; single date —
+                        ESPN's soccer endpoint ignores YYYYMMDD-YYYYMMDD ranges)
+  - upcoming(days)    : scheduled fixtures from the next match day on (N days'
+                        worth), skipping over international breaks / the off-season
   - standings()       : the league table
 
 Returns plain dicts; short per-call caches keep the render loop cheap and polite.
 """
 from __future__ import annotations
 
+import asyncio
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -94,10 +97,59 @@ class EplClient:
         )
         return self._parse_events(data)
 
+    async def _calendar(self, ttl: float = 21600.0) -> list[str]:
+        """The season's match days as sorted 'YYYYMMDD' strings, from the league
+        calendar ESPN embeds in the scoreboard payload ([] if unavailable)."""
+        data = await self._json(
+            SCOREBOARD.format(league=self.league), {}, f"cal:{self.league}", ttl
+        )
+        cal = ((data or {}).get("leagues") or [{}])[0].get("calendar") or []
+        return sorted({d[:10].replace("-", "") for d in cal if isinstance(d, str) and len(d) >= 10})
+
+    async def _pre_matches(self, day_keys: list[str], ttl: float) -> list[dict]:
+        """Scheduled ('pre') matches across the given 'YYYYMMDD' days, merged,
+        de-duplicated and date-sorted."""
+        per_day = await asyncio.gather(
+            *(self.scoreboard(dates=d, ttl=ttl) for d in day_keys)
+        )
+        out: list[dict] = []
+        seen: set[tuple] = set()
+        for matches in per_day:
+            for m in matches:
+                if m["state"] != "pre":
+                    continue
+                key = (m.get("date"), m.get("home", {}).get("abbr"), m.get("away", {}).get("abbr"))
+                if key in seen:
+                    continue
+                seen.add(key)
+                out.append(m)
+        out.sort(key=lambda m: m["date"] or datetime.max.replace(tzinfo=timezone.utc))
+        return out
+
     async def upcoming(self, days: int = 12, ttl: float = 600.0) -> list[dict]:
+        """Scheduled ('pre') fixtures: the next `days` days' worth, starting at the
+        next match day that actually has any — so an international break or the
+        off-season shows whenever the schedule resumes rather than "no fixtures".
+
+        ESPN's soccer scoreboard silently ignores the `YYYYMMDD-YYYYMMDD` range
+        form (it returns zero events), so we query single days and merge. The
+        season calendar tells us which days have matches, so we only fetch those
+        (falling back to every day in the window if the calendar is missing).
+        Each day is cached independently (see scoreboard's per-date key), so
+        repeated calls are served from cache.
+        """
         now = datetime.now(timezone.utc)
-        rng = f"{now:%Y%m%d}-{now + timedelta(days=days):%Y%m%d}"
-        return [m for m in await self.scoreboard(dates=rng, ttl=ttl) if m["state"] == "pre"]
+        today = f"{now:%Y%m%d}"
+        cal = [d for d in await self._calendar() if d >= today]
+        if not cal:
+            cal = [f"{now + timedelta(days=i):%Y%m%d}" for i in range(days + 1)]
+
+        for start in cal[:10]:  # bounded look-ahead; the first hit almost always wins
+            end = f"{datetime.strptime(start, '%Y%m%d') + timedelta(days=days):%Y%m%d}"
+            found = await self._pre_matches([d for d in cal if start <= d <= end], ttl)
+            if found:
+                return found
+        return []
 
     async def standings(self, ttl: float = 600.0) -> list[dict]:
         data = await self._json(STANDINGS.format(league=self.league), {}, f"st:{self.league}", ttl)

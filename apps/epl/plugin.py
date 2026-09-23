@@ -45,7 +45,6 @@ class EplApp(LedApp):
 
     def views(self) -> list[ViewSpec]:
         return [
-            ViewSpec(id="scores", label="EPL Scores"),
             ViewSpec(id="fixtures", label="EPL Fixtures"),
             ViewSpec(id="table", label="EPL Table"),
         ]

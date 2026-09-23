@@ -20,6 +20,7 @@ from pi_led_core.canvas import (
     CYAN,
     GRAY,
     GREEN,
+    MICRO_H,
     ORANGE,
     PX_BIG,
     PX_SMALL,
@@ -27,6 +28,7 @@ from pi_led_core.canvas import (
     WHITE,
     WIDTH,
     YELLOW,
+    draw_micro,
     draw_micro_centered,
     draw_px,
     draw_px_centered,
@@ -147,21 +149,29 @@ def render_scores(matches, tick=0.0, favorite=""):
     return img
 
 
-def _center_abbr(draw, y: int, abbr: str, color, fav: bool) -> None:
+def _team_row(draw, y: int, tag: str, abbr: str, color, fav: bool) -> None:
+    """One team's row: a HOME/AWAY tag beside the team-colored abbreviation,
+    the pair centered together as a group (same y as the plain abbr used to
+    sit at, so the card's overall vertical rhythm is unchanged)."""
     abbr = str(abbr or "?")[:4]
-    w = px_text_width(abbr, PX_BIG)
-    x0 = (WIDTH - w) // 2
-    draw_px(draw, (x0, y), abbr, fill=color, size=PX_BIG)
+    tag_w = micro_text_width(tag, spacing=0)
+    abbr_w = px_text_width(abbr, PX_BIG)
+    gap = 3
+    x0 = (WIDTH - (tag_w + gap + abbr_w)) // 2
+    tag_y = y + (px_cap_height(PX_BIG) - MICRO_H) // 2
+    draw_micro(draw, (x0, tag_y), tag, fill=color, spacing=0)
+    ax = x0 + tag_w + gap
+    draw_px(draw, (ax, y), abbr, fill=color, size=PX_BIG)
     if fav:
-        _underline(draw, x0, y, w)
+        _underline(draw, ax, y, abbr_w)
 
 
 def render_fixtures(matches, tick=0.0, favorite=""):
     img = new_canvas()
     draw = ImageDraw.Draw(img)
-    draw_px_centered(draw, 0, "UPCOMING", fill=ACCENT, size=PX_SMALL)
-    filled_rect(draw, 3, 9, WIDTH - 4, 9, scale_color(ACCENT, 0.4))
     if not matches:
+        draw_px_centered(draw, 0, "UPCOMING", fill=ACCENT, size=PX_SMALL)
+        filled_rect(draw, 3, 9, WIDTH - 4, 9, scale_color(ACCENT, 0.4))
         draw_px_centered(draw, 28, "NO FIXTURES", fill=scale_color(WHITE, 0.7), size=PX_SMALL)
         return img
 
@@ -169,12 +179,19 @@ def render_fixtures(matches, tick=0.0, favorite=""):
     idx = int(tick / _PAGE) % n
     m = matches[idx]
     home, away = m.get("home", {}), m.get("away", {})
+    home_c, away_c = _team_color(home.get("color", "")), _team_color(away.get("color", ""))
+
+    draw_px_centered(draw, 0, "UPCOMING", fill=ACCENT, size=PX_SMALL)
+    filled_rect(draw, 3, 9, WIDTH - 4, 9, scale_color(ACCENT, 0.4))
+
     fav_h, fav_a = _is_fav(home, favorite), _is_fav(away, favorite)
     if fav_h or fav_a:
         _star(draw, WIDTH - 6, 3)
-    _center_abbr(draw, 13, home.get("abbr", "?"), _team_color(home.get("color", "")), fav_h)
+
+    _team_row(draw, 13, "HOME", home.get("abbr", "?"), home_c, fav_h)
     draw_micro_centered(draw, 30, "VS", fill=scale_color(GRAY, 0.9))
-    _center_abbr(draw, 37, away.get("abbr", "?"), _team_color(away.get("color", "")), fav_a)
+    _team_row(draw, 37, "AWAY", away.get("abbr", "?"), away_c, fav_a)
+
     when = f"{_daydate(m.get('date'))}  {_hhmm(m.get('date'))}".strip()
     draw_micro_centered(draw, 54, when, fill=scale_color(WHITE, 0.85))
     _dots(draw, idx, n)
