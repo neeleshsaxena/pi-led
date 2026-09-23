@@ -34,7 +34,6 @@ DEFAULT_VIEWS = [
     "traffic:commute",
     "traffic:eta",
     "flights:main",
-    "epl:scores",
     "epl:fixtures",
     "epl:table",
     "plants:main",
@@ -47,7 +46,7 @@ DEFAULT_VIEWS = [
 
 # Seconds each view is held before advancing. Tunable per-deploy via env, and
 # per-install via the stored `carousel` config's `dwell`.
-DEFAULT_DWELL = float(os.environ.get("LED_CAROUSEL_DWELL", "10"))
+DEFAULT_DWELL = float(os.environ.get("LED_CAROUSEL_DWELL", "15"))
 
 
 class CarouselApp(LedApp):

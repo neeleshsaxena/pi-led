@@ -1,17 +1,18 @@
-"""Local traffic incidents for the panel.
+"""Local traffic for the panel.
 
 Two views:
-  - `main`    — everything within `radius_km` of home, worst first, but with the
-                commute freeways (US-101 / I-280) boosted to the top.
-  - `commute` — just the commute corridor (US-101 / I-280) out to
-                `commute_radius_km`, ordered nearest-first (home → the city), for
-                a "how's my drive to SF" glance.
+  - `main` — incident alerts (crashes, roadwork, hazards) within `radius_km` of
+             home, worst first, with the commute freeways (US-101 / I-280) boosted
+             to the top.
+  - `eta`  — live drive time to SF (TomTom), with minutes-of-delay vs free-flow —
+             the actual "how bad is the commute right now" signal.
 
 Data/config/lifecycle live here (lead-owned); pixel layout lives in render.py
-(UI-owned). Config keys: `lat`/`lon` (center), `radius_km`, `commute_radius_km`,
-and `commute_roads` (base codes). The committed default is a generic city center;
-the real coordinates come from stored config or TRAFFIC_LAT / TRAFFIC_LON — a home
-location, kept out of the repo. Reuses the transit app's free 511 key.
+(UI-owned). Config keys: `lat`/`lon` (center), `radius_km`, `commute_roads` (codes
+boosted in `main`), and `sf_lat`/`sf_lon` (the eta destination). The committed
+default is a generic city center; the real coordinates come from stored config or
+TRAFFIC_LAT / TRAFFIC_LON — a home location, kept out of the repo. `main` reuses
+the transit app's free 511 key; `eta` uses a TomTom key.
 """
 from __future__ import annotations
 
@@ -30,7 +31,6 @@ from .traffic import TrafficClient
 DEFAULT_LAT = 37.7749
 DEFAULT_LON = -122.4194
 DEFAULT_RADIUS_KM = 6.0
-DEFAULT_COMMUTE_RADIUS_KM = 28.0
 DEFAULT_COMMUTE_ROADS = ["US-101", "I-280"]
 # ETA destination default — Salesforce Transit Center, downtown SF (generic).
 DEFAULT_SF_LAT = 37.7896
@@ -52,13 +52,16 @@ class TrafficApp(LedApp):
     def __init__(self) -> None:
         self.client: TrafficClient | None = None
         self.routing: RoutingClient | None = None
-        self._events: dict[str, list[dict]] = {"main": [], "commute": []}
+        self._events: dict[str, list[dict]] = {"main": []}
         self._eta: dict | None = None
 
     def views(self) -> list[ViewSpec]:
+        # `main` = incident alerts near home (101/280 floated to the top); `eta` =
+        # live drive time to SF. A separate "commute corridor incidents" view was
+        # dropped — it was a redundant subset of `main` (same 511 feed) and almost
+        # always empty; the live-congestion signal people want is the eta card.
         return [
             ViewSpec(id="main", label="Traffic"),
-            ViewSpec(id="commute", label="Commute (101)"),
             ViewSpec(id="eta", label="SF drive time"),
         ]
 
@@ -67,7 +70,6 @@ class TrafficApp(LedApp):
             "lat": _env_float("TRAFFIC_LAT") or DEFAULT_LAT,
             "lon": _env_float("TRAFFIC_LON") or DEFAULT_LON,
             "radius_km": _env_float("TRAFFIC_RADIUS_KM") or DEFAULT_RADIUS_KM,
-            "commute_radius_km": _env_float("TRAFFIC_COMMUTE_KM") or DEFAULT_COMMUTE_RADIUS_KM,
             "commute_roads": list(DEFAULT_COMMUTE_ROADS),
             "sf_lat": _env_float("TRAFFIC_SF_LAT") or DEFAULT_SF_LAT,
             "sf_lon": _env_float("TRAFFIC_SF_LON") or DEFAULT_SF_LON,
@@ -103,23 +105,16 @@ class TrafficApp(LedApp):
             return render_eta(self._eta, has_key=has_key, dest="SF", tick=ctx.tick)
 
         has_key = bool(self.client and self.client.has_key)
-        commute = ctx.view == "commute"
 
         if self.client is not None:
             try:
-                if commute:
-                    radius = float(cfg.get("commute_radius_km", DEFAULT_COMMUTE_RADIUS_KM))
-                    evs = await self.client.events(lat, lon, radius, roads=roads, sort="distance")
-                else:
-                    radius = float(cfg.get("radius_km", DEFAULT_RADIUS_KM))
-                    evs = await self.client.events(lat, lon, radius)
-                    evs = _boost(evs, roads)
-                self._events[ctx.view] = evs  # [] is a valid "all clear"
+                radius = float(cfg.get("radius_km", DEFAULT_RADIUS_KM))
+                evs = await self.client.events(lat, lon, radius)
+                self._events["main"] = _boost(evs, roads)  # [] is a valid "all clear"
             except Exception:  # noqa: BLE001 - best-effort; keep last events
                 pass
 
-        title = "101 TO SF" if commute else "TRAFFIC"
-        return render_traffic(self._events.get(ctx.view, []), has_key=has_key, title=title, tick=ctx.tick)
+        return render_traffic(self._events.get("main", []), has_key=has_key, title="TRAFFIC", tick=ctx.tick)
 
     def view_cycle_seconds(self, view_id: str, config: dict) -> float | None:
         # Paged incidents; give each page time to be read (see render.py PAGE_SECS).
