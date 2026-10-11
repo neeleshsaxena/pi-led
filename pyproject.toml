@@ -27,7 +27,7 @@ dev = [
 # from hzeller's source; the sink auto-detects it. Not a pip dependency.
 
 [tool.setuptools]
-packages = ["pi_led_core", "apps", "apps.carousel", "apps.messages", "apps.worldcup", "apps.clock", "apps.weather", "apps.ambient", "apps.birthday", "apps.plants", "apps.reminders", "apps.news", "apps.transit", "apps.traffic", "apps.flights", "apps.epl", "controller"]
+packages = ["pi_led_core", "apps", "apps.carousel", "apps.messages", "apps.worldcup", "apps.clock", "apps.weather", "apps.ambient", "apps.birthday", "apps.plants", "apps.reminders", "apps.news", "apps.transit", "apps.traffic", "apps.flights", "apps.epl", "apps.tracker", "apps.homechef", "controller"]
 
 [tool.pytest.ini_options]
 # asyncio_mode=auto so plain `async def test_*` run without per-test decorators.

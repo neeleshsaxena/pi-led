@@ -41,6 +41,7 @@ Apps currently in the rotation:
 | **Weather** | current conditions + short forecast (Open-Meteo, no API key) |
 | **Clock** | dual-timezone digital + an analog face |
 | **Messages** | a scrolling/animated message you set from the web UI |
+| **Home Chef** | today's planned dish(es), curated from pantry + planned on a weekly menu via the admin UI |
 | **Ambient** | plasma, fire, "matrix" rain, starfield, Conway's Life |
 | **Carousel** | rotates through a configurable list of the views above |
 
@@ -182,6 +183,11 @@ utilities tuned for a 64×64 grid.
   and an analog face. Also the reference "copy me to start a new app" plugin.
 - **Messages** (`apps/messages/`) — a static message set from the web UI, with selectable
   animations (solid / rainbow / spectrum / breathe / wave / scroll / sparkle).
+- **Home Chef** (`apps/homechef/`) — mark what's in the pantry, get curated Indian dinner
+  suggestions from what's actually makeable, slot dishes onto days of the week (any
+  number per day), and the panel shows whatever's planned for today. No external API;
+  everything lives in the plugin's own config. Its admin surface (`/admin/apps/homechef/`)
+  is large enough to warrant its own `admin.py` alongside the usual `plugin.py`/`render.py`.
 - **Ambient** (`apps/ambient/`) — always-on eye-candy: plasma, fire, "matrix" rain,
   starfield, Conway's Game of Life. Heavy effects compute at reduced resolution and scale
   up to stay within a Pi 3B's budget.

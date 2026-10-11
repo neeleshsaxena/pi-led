@@ -8,10 +8,12 @@ from .carousel import CarouselApp
 from .clock import ClockApp
 from .epl import EplApp
 from .flights import FlightsApp
+from .homechef import HomeChefApp
 from .messages import MessagesApp
 from .news import NewsApp
 from .plants import PlantApp
 from .reminders import ReminderApp
+from .tracker import TrackerApp
 from .traffic import TrafficApp
 from .transit import TransitApp
 from .weather import WeatherApp
@@ -27,9 +29,11 @@ ALL_APPS = [
     BirthdayApp(),
     PlantApp(),
     ReminderApp(),
+    HomeChefApp(),
     NewsApp(),
     FlightsApp(),
     EplApp(),
     TransitApp(),
     TrafficApp(),
+    TrackerApp(),
 ]
