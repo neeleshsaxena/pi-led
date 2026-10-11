@@ -12,5 +12,8 @@ deploy/UI-ASKS.md
 deploy/UI-UX-WORKSTREAM.md
 deploy/HARDWARE-HANDBACK.md
 
+# Internal operations notes / runbook — real host/IP/password/workarounds
+deploy/OPERATIONS.md
+
 # Local deploy target (real host/path) — never published
 deploy/target.env
