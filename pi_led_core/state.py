@@ -55,8 +55,24 @@ class ControllerState:
 
     def _save(self) -> None:
         tmp = self._path.with_suffix(self._path.suffix + ".tmp")
-        tmp.write_text(json.dumps({"active": self._active, "configs": self._configs}, indent=2))
+        data = json.dumps({"active": self._active, "configs": self._configs}, indent=2)
+        # Durable write: write + fsync the temp file, atomically rename it over the
+        # real one, then fsync the directory. The atomic rename alone prevents a torn
+        # file, but without the fsyncs a hard power-cut within ext4's ~5s commit
+        # window would silently drop the save — and this Pi does get unplugged.
+        with open(tmp, "w") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
         os.replace(tmp, self._path)
+        try:
+            dfd = os.open(self._path.parent, os.O_RDONLY)
+            try:
+                os.fsync(dfd)
+            finally:
+                os.close(dfd)
+        except OSError:
+            pass  # directory fsync unsupported on some filesystems — best-effort
         try:
             self._mtime = self._path.stat().st_mtime
         except OSError:
